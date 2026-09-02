@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ColoniasAPI — Panel de pruebas</title>
+<style>
+  :root {
+    --bg: #f5f6f8;
+    --panel: #ffffff;
+    --border: #e0e2e7;
+    --text: #1b1e24;
+    --muted: #6b7280;
+    --accent: #2563eb;
+    --ok: #16a34a;
+    --err: #dc2626;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    padding: 24px;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; }
+  h1 { font-size: 1.4rem; margin-bottom: 4px; }
+  .sub { color: var(--muted); margin-bottom: 24px; font-size: 0.9rem; }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px 20px;
+    margin-bottom: 18px;
+  }
+  .panel h2 {
+    font-size: 1rem;
+    margin: 0 0 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .panel h2 .badge {
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    background: #eef2ff;
+    color: var(--accent);
+    padding: 2px 8px;
+    border-radius: 6px;
+  }
+  .panel p.desc { color: var(--muted); font-size: 0.85rem; margin: -6px 0 12px; }
+
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 10px; }
+  .field { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 140px; }
+  .field label { font-size: 0.78rem; color: var(--muted); }
+  .field input {
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 0.9rem;
+    font-family: var(--mono);
+  }
+  button {
+    padding: 8px 16px;
+    border: none;
+    border-radius: 6px;
+    background: var(--accent);
+    color: white;
+    font-size: 0.85rem;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  button:hover { opacity: 0.9; }
+  button.secondary { background: #4b5563; }
+  button.ghost { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
+
+  .result {
+    margin-top: 10px;
+    background: #0f1115;
+    color: #d1d5db;
+    border-radius: 8px;
+    padding: 12px 14px;
+    font-family: var(--mono);
+    font-size: 0.8rem;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 320px;
+    overflow: auto;
+    display: none;
+  }
+  .result.show { display: block; }
+  .meta {
+    font-size: 0.78rem;
+    margin-top: 6px;
+    display: none;
+    gap: 10px;
+  }
+  .meta.show { display: flex; }
+  .meta .ok { color: var(--ok); font-weight: 600; }
+  .meta .err { color: var(--err); font-weight: 600; }
+
+  #config { border-color: var(--accent); }
+  #smoke-summary { margin-top: 10px; }
+  .smoke-item { display: flex; gap: 8px; align-items: center; font-size: 0.85rem; padding: 4px 0; }
+  .smoke-item .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); flex-shrink: 0; }
+  .smoke-item .dot.ok { background: var(--ok); }
+  .smoke-item .dot.err { background: var(--err); }
+  .smoke-item code { font-family: var(--mono); font-size: 0.78rem; color: var(--muted); }
+
+  footer { color: var(--muted); font-size: 0.78rem; text-align: center; margin-top: 24px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>ColoniasAPI — Panel de pruebas</h1>
+  <p class="sub">Herramienta interna para probar los endpoints a mano. No es parte del API pública — es solo una página estática que hace <code>fetch()</code> al mismo dominio donde la subas.</p>
+
+  <div class="panel" id="config">
+    <h2>Configuración</h2>
+    <div class="row">
+      <div class="field">
+        <label for="baseUrl">Base URL</label>
+        <input type="text" id="baseUrl" placeholder="https://tu-dominio.com">
+      </div>
+      <div class="field">
+        <label for="apiKey">API Key</label>
+        <input type="text" id="apiKey" placeholder="col_xxxxx...">
+      </div>
+      <button onclick="guardarConfig()">Guardar</button>
+    </div>
+    <p class="desc">Se guarda solo en este navegador (localStorage), no se envía a ningún lado más que a tu propio API.</p>
+  </div>
+
+  <div class="panel">
+    <h2>Probar todo <span class="badge">smoke test</span></h2>
+    <p class="desc">Corre una secuencia de llamadas de ejemplo contra los endpoints principales y marca cuáles responden como se espera.</p>
+    <button onclick="correrSmokeTest()">▶ Probar todo</button>
+    <div id="smoke-summary"></div>
+  </div>
+
+  <div class="panel">
+    <h2>GET /health <span class="badge">sin API key</span></h2>
+    <div class="row">
+      <button onclick="probar('health')">Probar</button>
+    </div>
+    <div class="result" id="result-health"></div>
+    <div class="meta" id="meta-health"></div>
+  </div>
+
+  <div class="panel">
+    <h2>GET /estados</h2>
+    <div class="row">
+      <button onclick="probar('estados')">Probar</button>
+    </div>
+    <div class="result" id="result-estados"></div>
+    <div class="meta" id="meta-estados"></div>
+  </div>
+
+  <div class="panel">
+    <h2>GET /municipios</h2>
+    <div class="row">
+      <div class="field">
+        <label for="mun-estado">estado_id</label>
+        <input type="text" id="mun-estado" value="9">
+      </div>
+      <button onclick="probar('municipios')">Probar</button>
+    </div>
+    <div class="result" id="result-municipios"></div>
+    <div class="meta" id="meta-municipios"></div>
+  </div>
+
+  <div class="panel">
+    <h2>GET /buscar</h2>
+    <div class="row">
+      <div class="field">
+        <label for="buscar-q">q (texto o CP)</label>
+        <input type="text" id="buscar-q" value="polanco">
+      </div>
+      <div class="field">
+        <label for="buscar-limit">limit</label>
+        <input type="text" id="buscar-limit" value="5">
+      </div>
+      <button onclick="probar('buscar')">Probar</button>
+    </div>
+    <div class="result" id="result-buscar"></div>
+    <div class="meta" id="meta-buscar"></div>
+  </div>
+
+  <div class="panel">
+    <h2>GET /colonia/:id</h2>
+    <div class="row">
+      <div class="field">
+        <label for="col-id">id</label>
+        <input type="text" id="col-id" value="1">
+      </div>
+      <button onclick="probar('colonia')">Probar</button>
+    </div>
+    <div class="result" id="result-colonia"></div>
+    <div class="meta" id="meta-colonia"></div>
+  </div>
+
+  <div class="panel">
+    <h2>GET /geolocate</h2>
+    <div class="row">
+      <div class="field">
+        <label for="geo-lat">lat</label>
+        <input type="text" id="geo-lat" value="19.43261">
+      </div>
+      <div class="field">
+        <label for="geo-lng">lng</label>
+        <input type="text" id="geo-lng" value="-99.13321">
+      </div>
+      <button onclick="probar('geolocate')">Probar</button>
+      <button class="ghost" onclick="usarMiUbicacion()">📍 Usar mi ubicación</button>
+    </div>
+    <div class="result" id="result-geolocate"></div>
+    <div class="meta" id="meta-geolocate"></div>
+  </div>
+
+  <div class="panel">
+    <h2>GET /distrito</h2>
+    <p class="desc">Distrito federal y local a partir de la Sección electoral (dato de la credencial del INE).</p>
+    <div class="row">
+      <div class="field">
+        <label for="dist-seccion">seccion</label>
+        <input type="text" id="dist-seccion" value="0001">
+      </div>
+      <div class="field">
+        <label for="dist-estado">estado_id</label>
+        <input type="text" id="dist-estado" value="9">
+      </div>
+      <button onclick="probar('distrito')">Probar</button>
+    </div>
+    <div class="result" id="result-distrito"></div>
+    <div class="meta" id="meta-distrito"></div>
+  </div>
+
+  <footer>ColoniasAPI · panel de pruebas local · no requiere build ni dependencias</footer>
+</div>
+
+<script>
+function getConfig() {
+  return {
+    baseUrl: (localStorage.getItem('colonias_base_url') || location.origin).replace(/\/$/, ''),
+    apiKey: localStorage.getItem('colonias_api_key') || '',
+  };
+}
+
+function guardarConfig() {
+  localStorage.setItem('colonias_base_url', document.getElementById('baseUrl').value.trim());
+  localStorage.setItem('colonias_api_key', document.getElementById('apiKey').value.trim());
+  alert('Guardado.');
+}
+
+(function initConfig() {
+  const c = getConfig();
+  document.getElementById('baseUrl').value = c.baseUrl;
+  document.getElementById('apiKey').value = c.apiKey;
+})();
+
+function endpointDe(nombre) {
+  const val = (id) => document.getElementById(id).value.trim();
+  switch (nombre) {
+    case 'health': return { path: '/health', auth: false };
+    case 'estados': return { path: '/estados', auth: true };
+    case 'municipios': return { path: `/municipios?estado_id=${encodeURIComponent(val('mun-estado'))}`, auth: true };
+    case 'buscar': return { path: `/buscar?q=${encodeURIComponent(val('buscar-q'))}&limit=${encodeURIComponent(val('buscar-limit'))}`, auth: true };
+    case 'colonia': return { path: `/colonia/${encodeURIComponent(val('col-id'))}`, auth: true };
+    case 'geolocate': return { path: `/geolocate?lat=${encodeURIComponent(val('geo-lat'))}&lng=${encodeURIComponent(val('geo-lng'))}`, auth: true };
+    case 'distrito': return { path: `/distrito?seccion=${encodeURIComponent(val('dist-seccion'))}&estado_id=${encodeURIComponent(val('dist-estado'))}`, auth: true };
+  }
+}
+
+async function llamar(nombre) {
+  const { baseUrl, apiKey } = getConfig();
+  const { path, auth } = endpointDe(nombre);
+  const url = baseUrl + path;
+  const headers = {};
+  if (auth) headers['Authorization'] = 'Bearer ' + apiKey;
+
+  const inicio = performance.now();
+  try {
+    const resp = await fetch(url, { headers });
+    const ms = Math.round(performance.now() - inicio);
+    let data;
+    try { data = await resp.json(); } catch { data = { ok: false, error: 'Respuesta no es JSON válido', codigo: resp.status }; }
+    return { status: resp.status, ms, data, url };
+  } catch (e) {
+    const ms = Math.round(performance.now() - inicio);
+    return { status: 0, ms, data: { ok: false, error: 'No se pudo conectar: ' + e.message }, url };
+  }
+}
+
+async function probar(nombre) {
+  const resultEl = document.getElementById('result-' + nombre);
+  const metaEl = document.getElementById('meta-' + nombre);
+  resultEl.classList.add('show');
+  resultEl.textContent = 'Cargando...';
+  metaEl.classList.remove('show');
+
+  const { status, ms, data, url } = await llamar(nombre);
+
+  resultEl.textContent = JSON.stringify(data, null, 2);
+  metaEl.classList.add('show');
+  const claseEstado = data && data.ok ? 'ok' : 'err';
+  metaEl.innerHTML = `
+    <span>URL: <code>${url}</code></span>
+    <span>HTTP ${status}</span>
+    <span>${ms} ms</span>
+    <span class="${claseEstado}">${data && data.ok ? '✓ ok' : '✗ error'}</span>
+  `;
+  return data && data.ok === true;
+}
+
+async function correrSmokeTest() {
+  const casos = [
+    { nombre: 'health', esperado: 'responde sin API key' },
+    { nombre: 'estados', esperado: 'devuelve 32 estados' },
+    { nombre: 'buscar', esperado: 'encuentra resultados de texto' },
+    { nombre: 'geolocate', esperado: 'resuelve coordenadas GPS' },
+    { nombre: 'distrito', esperado: 'resuelve sección → distrito' },
+  ];
+
+  const resumen = document.getElementById('smoke-summary');
+  resumen.innerHTML = casos.map(c => `
+    <div class="smoke-item" id="smoke-${c.nombre}">
+      <span class="dot"></span>
+      <strong>${c.nombre}</strong>
+      <code>${c.esperado}</code>
+    </div>
+  `).join('');
+
+  for (const c of casos) {
+    const ok = await probar(c.nombre);
+    const item = document.getElementById(`smoke-${c.nombre}`);
+    const dot = item.querySelector('.dot');
+    dot.classList.add(ok ? 'ok' : 'err');
+  }
+}
+
+function usarMiUbicacion() {
+  if (!navigator.geolocation) {
+    alert('Este navegador no soporta geolocalización.');
+    return;
+  }
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      document.getElementById('geo-lat').value = pos.coords.latitude.toFixed(5);
+      document.getElementById('geo-lng').value = pos.coords.longitude.toFixed(5);
+    },
+    (err) => alert('No se pudo obtener ubicación: ' + err.message)
+  );
+}
+</script>
+</body>
+</html>

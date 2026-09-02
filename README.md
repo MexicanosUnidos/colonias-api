@@ -38,6 +38,10 @@ php import/1b_centroide_provisional.php
 
 # 3. Verificación de salud general
 php import/3_verificar.php
+
+# 4. Secciones electorales (INE) — coloca el catálogo en import/data/ine_secciones.csv
+php import/5_ine_secciones.php
+php import/5b_verificar_secciones.php
 ```
 
 ## Autenticación
@@ -97,6 +101,16 @@ Colonia exacta a partir de coordenadas GPS. El campo `metodo` indica si el resul
 curl -H "Authorization: Bearer $KEY" "https://tu-dominio.com/geolocate?lat=19.43261&lng=-99.13321"
 ```
 
+### `GET /distrito?seccion=&estado_id=`
+
+Distrito federal y local de una sección electoral (dato impreso en la credencial del INE). Es una búsqueda directa en el catálogo del INE, sin geocodificación.
+
+```bash
+curl -H "Authorization: Bearer $KEY" "https://tu-dominio.com/distrito?seccion=0001&estado_id=9"
+```
+
+Requiere haber importado el catálogo del INE (ver sección "Importación de datos" y `docs/PLAN.md` milestone M8).
+
 ### `GET /health`
 
 Estado del servicio, sin autenticación.
@@ -126,6 +140,12 @@ curl -X POST https://tu-dominio.com/keys/crear \
 ```json
 { "ok": false, "error": "Descripción del error", "codigo": 401 }
 ```
+
+## Panel de pruebas
+
+`test.html` (en la raíz del proyecto) es una página estática con formularios para probar cada endpoint a mano y un botón "Probar todo" que corre un smoke test. Ábrela como `https://tu-dominio.com/test.html`, configura tu Base URL y API key (se guardan solo en el navegador) y prueba.
+
+⚠️ No requiere autenticación propia — cualquiera que conozca la URL puede abrirla (aunque igual necesita una API key válida para las rutas protegidas). En producción, protégela con auth básica de Apache/Nginx o bórrala del servidor cuando termines de probar.
 
 ## Caché
 

@@ -51,6 +51,7 @@ $routes = [
     'GET /municipios' => __DIR__ . '/handlers/municipios.php',
     'GET /buscar' => __DIR__ . '/handlers/buscar.php',
     'GET /geolocate' => __DIR__ . '/handlers/geolocate.php',
+    'GET /distrito' => __DIR__ . '/handlers/distrito.php',
 ];
 
 if (isset($routes[$routeKey]) && is_file($routes[$routeKey])) {

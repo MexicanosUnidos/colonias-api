@@ -59,6 +59,44 @@ CREATE TABLE IF NOT EXISTS colonia_poligonos (
     CONSTRAINT fk_poligonos_colonia FOREIGN KEY (colonia_id) REFERENCES colonias(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- Catálogo de distritos electorales federales (INE), por estado
+CREATE TABLE IF NOT EXISTS distritos_federales (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    estado_id INT UNSIGNED NOT NULL,
+    numero TINYINT UNSIGNED NOT NULL,
+    cabecera VARCHAR(150) NULL,
+    UNIQUE KEY uq_distrito_federal (estado_id, numero),
+    CONSTRAINT fk_distritos_federales_estado FOREIGN KEY (estado_id) REFERENCES estados(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Catálogo de distritos electorales locales (INE), por estado
+CREATE TABLE IF NOT EXISTS distritos_locales (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    estado_id INT UNSIGNED NOT NULL,
+    numero TINYINT UNSIGNED NOT NULL,
+    cabecera VARCHAR(150) NULL,
+    UNIQUE KEY uq_distrito_local (estado_id, numero),
+    CONSTRAINT fk_distritos_locales_estado FOREIGN KEY (estado_id) REFERENCES estados(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Catálogo de secciones electorales (INE). La sección se repite entre
+-- estados, por eso la llave primaria es compuesta (seccion + estado_id).
+CREATE TABLE IF NOT EXISTS secciones_electorales (
+    seccion CHAR(4) NOT NULL,
+    estado_id INT UNSIGNED NOT NULL,
+    distrito_federal_id INT UNSIGNED NOT NULL,
+    distrito_local_id INT UNSIGNED NULL,
+    municipio_id INT UNSIGNED NULL,
+    PRIMARY KEY (seccion, estado_id),
+    KEY idx_distrito_federal (distrito_federal_id),
+    KEY idx_distrito_local (distrito_local_id),
+    KEY idx_municipio (municipio_id),
+    CONSTRAINT fk_secciones_estado FOREIGN KEY (estado_id) REFERENCES estados(id),
+    CONSTRAINT fk_secciones_distrito_federal FOREIGN KEY (distrito_federal_id) REFERENCES distritos_federales(id),
+    CONSTRAINT fk_secciones_distrito_local FOREIGN KEY (distrito_local_id) REFERENCES distritos_locales(id),
+    CONSTRAINT fk_secciones_municipio FOREIGN KEY (municipio_id) REFERENCES municipios(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- Catálogo de los 32 estados de México
 INSERT INTO estados (clave, nombre) VALUES
 ('01', 'Aguascalientes'),
