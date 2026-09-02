@@ -34,11 +34,10 @@ CREATE TABLE IF NOT EXISTS colonias (
     municipio_id INT UNSIGNED NOT NULL,
     codigo_postal CHAR(5) NOT NULL,
     tipo VARCHAR(50) NULL,
-    centroide POINT SRID 0 NULL,
+    centroide POINT NULL,
     creado_en DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     KEY idx_municipio (municipio_id),
     KEY idx_cp (codigo_postal),
-    SPATIAL KEY sp_centroide (centroide),
     FULLTEXT KEY ft_nombre (nombre),
     CONSTRAINT fk_colonias_municipio FOREIGN KEY (municipio_id) REFERENCES municipios(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -54,7 +53,7 @@ CREATE TABLE IF NOT EXISTS api_rate_log (
 
 CREATE TABLE IF NOT EXISTS colonia_poligonos (
     colonia_id INT UNSIGNED NOT NULL PRIMARY KEY,
-    poligono GEOMETRY SRID 0 NOT NULL,
+    poligono GEOMETRY NOT NULL,
     SPATIAL KEY sp_poligono (poligono),
     CONSTRAINT fk_poligonos_colonia FOREIGN KEY (colonia_id) REFERENCES colonias(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

@@ -158,8 +158,9 @@ secciones_electorales (~68,000 filas, catálogo INE)
 ```
 
 **Por qué dos tablas para colonias y polígonos:**
-- `SPATIAL INDEX` en MySQL requiere columna `NOT NULL`
-- Los polígonos se importan en una segunda fase (primero SEPOMEX, luego INEGI)
+- Los polígonos se importan en una segunda fase (primero SEPOMEX, luego INEGI); mientras tanto `colonias.centroide` queda `NULL`
+- `colonia_poligonos.poligono` sí es `NOT NULL` y sí tiene `SPATIAL INDEX` (`sp_poligono`) — todo `ST_Within()` de `/geolocate` pasa por ahí
+- `colonias.centroide` **no** lleva índice espacial: el fallback Haversine de `/geolocate` filtra con `ST_X()/ST_Y() BETWEEN`, que un índice espacial no acelera, y un `SPATIAL INDEX` exige que la columna sea `NOT NULL` — incompatible con dejarla vacía entre M3 y M4. Un `KEY` normal ahí tampoco ayudaría a ese filtro, así que se dejó sin índice (colonias es candidata a bounding box, no hay tantas filas por consulta como para notarlo)
 - Las consultas de texto no necesitan cargar los polígonos (más rápido)
 - Permite que el sistema funcione parcialmente desde el día 1
 
@@ -168,7 +169,6 @@ secciones_electorales (~68,000 filas, catálogo INE)
 | Tabla | Índice | Tipo | Para qué sirve |
 |-------|--------|------|----------------|
 | `colonias` | `ft_nombre` | FULLTEXT | Búsqueda por texto libre |
-| `colonias` | `sp_centroide` | SPATIAL (R-Tree) | Búsqueda colonias cercanas |
 | `colonias` | `idx_cp` | B-Tree | Búsqueda por código postal |
 | `colonias` | `idx_municipio` | B-Tree | Filtrar por municipio |
 | `colonia_poligonos` | `sp_poligono` | SPATIAL (R-Tree) | `ST_Within()` para GPS |
