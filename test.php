@@ -1,3 +1,8 @@
+<?php
+require_once __DIR__ . '/config/db.php';
+require_once __DIR__ . '/middleware/admin_auth.php';
+requireAdminAuth();
+?>
 <!DOCTYPE html>
 <html lang="es">
 <head>
@@ -27,6 +32,8 @@
   .wrap { max-width: 980px; margin: 0 auto; }
   h1 { font-size: 1.4rem; margin-bottom: 4px; }
   .sub { color: var(--muted); margin-bottom: 24px; font-size: 0.9rem; }
+  .topbar { display: flex; justify-content: space-between; align-items: baseline; }
+  .topbar a { font-size: 0.82rem; color: var(--accent); text-decoration: none; }
 
   .panel {
     background: var(--panel);
@@ -115,8 +122,11 @@
 <body>
 <div class="wrap">
 
-  <h1>ColoniasAPI — Panel de pruebas</h1>
-  <p class="sub">Herramienta interna para probar los endpoints a mano. No es parte del API pública — es solo una página estática que hace <code>fetch()</code> al mismo dominio donde la subas.</p>
+  <div class="topbar">
+    <h1>ColoniasAPI — Panel de pruebas</h1>
+    <a href="admin/">⚙ Panel de administración</a>
+  </div>
+  <p class="sub">Herramienta interna para probar los endpoints a mano. No es parte del API pública — es solo una página que hace <code>fetch()</code> al mismo dominio donde la subas.</p>
 
   <div class="panel" id="config">
     <h2>Configuración</h2>

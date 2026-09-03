@@ -141,11 +141,21 @@ curl -X POST https://tu-dominio.com/keys/crear \
 { "ok": false, "error": "Descripción del error", "codigo": 401 }
 ```
 
-## Panel de pruebas
+## Herramientas internas (protegidas por clave de administrador)
 
-`test.html` (en la raíz del proyecto) es una página estática con formularios para probar cada endpoint a mano y un botón "Probar todo" que corre un smoke test. Ábrela como `https://tu-dominio.com/test.html`, configura tu Base URL y API key (se guardan solo en el navegador) y prueba.
+`test.php` y `admin/` **no son parte del API pública** — piden la `ADMIN_SECRET` de `config/env.php` antes de mostrar nada (formulario de login, sesión de PHP). No necesitan una API key de proyecto para acceder al panel en sí, solo para las llamadas que el panel de pruebas hace al API.
 
-⚠️ No requiere autenticación propia — cualquiera que conozca la URL puede abrirla (aunque igual necesita una API key válida para las rutas protegidas). En producción, protégela con auth básica de Apache/Nginx o bórrala del servidor cuando termines de probar.
+### Panel de pruebas — `test.php`
+
+Formularios para probar cada endpoint a mano y un botón "Probar todo" que corre un smoke test. Ábrelo en `https://tu-dominio.com/test.php`, entra con la clave de administrador, configura la Base URL y una API key real (se guardan en el navegador) y prueba.
+
+### Panel de administración — `admin/`
+
+Para poblar la base de datos sin necesitar SSH: `https://tu-dominio.com/admin/`. Muestra los conteos actuales de cada tabla, y por cada paso de importación (SEPOMEX, centroide provisional, INEGI, secciones INE) indica si ya se corrió, si falta el archivo fuente, y ofrece un botón para ejecutarlo ahí mismo (corre el script real vía `exec()`, muestra la salida). El paso de SEPOMEX no es idempotente — si ya se corrió, pide marcar "forzar" a propósito antes de dejarlo repetirse, para no duplicar colonias por accidente. También incluye un formulario para crear API keys sin usar `curl`.
+
+Si el hosting tiene `exec`/`shell_exec` deshabilitados, el panel lo detecta y te da el comando exacto para correrlo tú mismo vía un Cron Job de cPanel (crea el cron, prográmalo para el minuto siguiente, y bórralo o cámbialo después de que corra una vez).
+
+⚠️ Ambas páginas son accesibles por cualquiera que conozca la URL — la clave de administrador es lo único que las protege. No compartas esa clave, y considera borrar `test.php`/`admin/` del servidor una vez que termines de poblar los datos, si el sitio va a quedar público permanentemente.
 
 ## Caché
 
