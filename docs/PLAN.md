@@ -49,28 +49,30 @@ El catálogo de colonias en México proviene de dos fuentes oficiales gratuitas 
 
 ### 2.1 SEPOMEX — Datos de texto
 - **URL de descarga:** https://www.correosdemexico.gob.mx/SSLServicios/ConsultaCP/Descarga.aspx
-- **Formato:** CSV, un archivo por estado (o todos juntos)
+- **Formato real de la descarga nacional: XML** (`CPdescarga.xml`, un `<table>` por colonia con el esquema inline al inicio del archivo) — no CSV. `import/1a_xml_a_csv.php` lo convierte al CSV que espera `import/1_sepomex.php`.
 - **Contenido:** nombre de colonia, código postal, tipo de asentamiento, municipio, estado
-- **Tamaño:** ~145,000 registros
+- **Tamaño real confirmado:** 159,201 registros (colonias), 31,875 códigos postales distintos, 32 estados, 2,478 municipios
 - **Actualización:** ocasional (cuando se crean colonias nuevas)
-- **Columnas relevantes:**
+- **Columnas relevantes — ⚠️ fácil de confundir:**
   - `d_asenta` — nombre de la colonia
   - `d_tipo_asenta` — tipo: Colonia, Fraccionamiento, Pueblo, Ejido, etc.
-  - `d_CP` — código postal (5 dígitos)
+  - `d_codigo` — **el código postal real de la colonia** (5 dígitos; ~32,000 valores distintos en el país)
+  - `d_CP` — ⚠️ **NO es el código postal de la colonia** pese al nombre — es la clave de la oficina postal, mucho más genérica (~1,200 valores en todo el país). Usarla como CP asigna el mismo código postal a cientos de colonias distintas.
   - `d_mnpio` — nombre del municipio
   - `d_estado` — nombre del estado
   - `c_estado` — clave de 2 dígitos del estado (para unir con INEGI)
   - `c_mnpio` — clave de municipio
 
-### 2.2 INEGI Marco Geoestadístico — Polígonos
-- **URL de descarga:** https://www.inegi.org.mx/app/biblioteca/ficha.html?upc=889463770944
-- **Formato:** Shapefile (.shp) o GeoJSON por estado
-- **Contenido:** polígono exacto de cada colonia (límites geográficos)
-- **Atributos relevantes:**
-  - `NOMGEO` — nombre de la colonia
-  - `CVE_MUN` — clave de municipio (para unir con SEPOMEX)
-  - `CVE_ENT` — clave de estado
-  - `geometry` — polígono en coordenadas WGS84
+### 2.2 INEGI — Polígonos de colonias (programa DCAH)
+
+> ⚠️ El UPC de biblioteca usado antes en este documento (`889463770944`) ya no aparece en el sitio de INEGI — los productos de INEGI se reeditan periódicamente con un UPC/ficha nuevo cada vez. En su lugar, el producto correcto y vigente es un programa dedicado, no una edición genérica del Marco Geoestadístico:
+
+- **Programa:** **DCAH — Delimitación de Colonias y otros Asentamientos Humanos**. Portal: https://www.inegi.org.mx/programas/dcah/
+- **Por qué este y no el Marco Geoestadístico genérico:** el Marco Geoestadístico base delimita AGEBs/manzanas/localidades, no "colonias" con nombre — no serviría para emparejar por `NOMGEO` contra SEPOMEX. El DCAH es el trabajo específico de INEGI (en conjunto con los municipios, desde 2020) para delimitar colonias con nombre, en una capa vectorial llamada **`AS`** (asentamientos).
+- **Formato:** Shapefile por estado.
+- **Atributos esperados** (confirmar contra el archivo real, igual que se hizo con INE en M8.2): `NOMGEO` (nombre de la colonia), `CVE_MUN`, `CVE_ENT`.
+- **⚠️ Cobertura incompleta por diseño — no es un defecto de la importación:** según la nota técnica oficial del DCAH (12-nov-2024), al corte 2023 solo se habían integrado **7,672 localidades** de las priorizadas (capitales de estado y localidades con 50,000+ habitantes primero). Muchas colonias de SEPOMEX simplemente no van a tener polígono DCAH todavía — para eso ya existe el fallback de M3.4 (`import/1b_centroide_provisional.php`) y el campo `metodo` de `/geolocate`.
+- **Pendiente de confirmar:** no pude ver el botón/enlace de descarga exacto por estado — el sitio de INEGI es una aplicación JS que mis herramientas no pueden renderizar. Entra a https://www.inegi.org.mx/programas/dcah/, busca la sección de descargas, y dime qué opciones aparecen (nombre exacto del archivo/paquete) para confirmar el paso siguiente, igual que hicimos con `cartografia.ine.mx/sige8`.
 
 ### 2.3 Estrategia de unión
 SEPOMEX tiene los CP y tipos; INEGI tiene los polígonos. Se unen por:
@@ -535,14 +537,16 @@ La `api_key` se muestra una sola vez — el sistema guarda solo el hash.
 ---
 
 ### M3 — Importación SEPOMEX (datos de texto)
-*Objetivo: Las 145,000 colonias en la BD con nombre, CP, municipio, estado.*
+*Objetivo: Las colonias en la BD con nombre, CP, municipio, estado.*
 
 | # | Tarea | Tamaño | Entregable |
 |---|-------|--------|-----------|
-| M3.1 | Descargar CSV de SEPOMEX (manual, el usuario lo hace) y colocarlo en `import/data/sepomex.csv` | — | Archivo CSV en carpeta |
+| M3.0 | Descargar el XML nacional de SEPOMEX (`CPdescarga.xml`, manual, el usuario lo hace) y colocarlo en cualquier ruta (ej. `Codigos Postales/CPdescarga.xml`) | — | Archivo XML disponible |
+| M3.0b | `import/1a_xml_a_csv.php` — convertir el XML a `import/data/sepomex.csv`. **Usa `d_codigo` para el CP, no `d_CP`** (ver advertencia en sección 2.1) | 🟡 | CSV generado, confirmado con 159,201 filas / 31,875 CPs distintos / 32 estados |
+| M3.1 | *(alternativa a M3.0/M3.0b)* Si en vez del XML se consigue un CSV ya armado de SEPOMEX, colocarlo directo en `import/data/sepomex.csv` | — | Archivo CSV en carpeta |
 | M3.2 | `import/1_sepomex.php` — leer CSV, insertar/actualizar municipios (deduplicar por clave_inegi), insertar colonias con centroide vacío temporal | 🔴 | Script CLI que corre sin errores en ~5 min |
-| M3.3 | Verificar conteos post-importación: `SELECT COUNT(*) FROM colonias` ≈ 145,000 | 🟢 | Query de verificación |
-| M3.4 | Calcular centroide promedio por colonia a partir de sus vecinos del mismo CP (estimación provisional hasta tener INEGI) | 🟡 | Campo centroide con valor aproximado |
+| M3.3 | Verificar conteos post-importación: `SELECT COUNT(*) FROM colonias` ≈ 159,000 | 🟢 | Query de verificación |
+| M3.4 | Calcular centroide promedio por colonia a partir de sus vecinos del mismo CP (estimación provisional hasta tener INEGI/DCAH) | 🟡 | Campo centroide con valor aproximado |
 | ✅ M3.V | Verificar: /buscar?q=roma → colonias de CDMX y otras ciudades; /buscar?q=06600 → colonias de Juárez CDMX | ✅ | |
 
 ---

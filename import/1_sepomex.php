@@ -48,12 +48,24 @@ $encabezado = fgetcsv($handle, 0, $delimitador);
 $encabezado = array_map(fn ($h) => trim((string) $h), $encabezado);
 $col = array_flip($encabezado);
 
-$requeridas = ['d_asenta', 'd_tipo_asenta', 'd_CP', 'd_mnpio', 'd_estado', 'c_estado', 'c_mnpio'];
+$requeridas = ['d_asenta', 'd_tipo_asenta', 'd_mnpio', 'd_estado', 'c_estado', 'c_mnpio'];
 foreach ($requeridas as $r) {
     if (!isset($col[$r])) {
         fwrite(STDERR, "Columna requerida '$r' no encontrada en el CSV.\n");
         exit(1);
     }
+}
+
+// El código postal real de cada colonia viene en "d_codigo" en el XML
+// nacional de SEPOMEX (CPdescarga.xml). La columna "d_CP" NO es el CP
+// de la colonia — es la clave de la oficina postal, mucho más genérica
+// (~1,200 valores en todo el país, contra ~32,000 de d_codigo). Se
+// prefiere d_codigo; d_CP queda solo como respaldo por si algún día se
+// usa un CSV distinto que sí lo use correctamente.
+$colCP = $col['d_codigo'] ?? $col['d_CP'] ?? null;
+if ($colCP === null) {
+    fwrite(STDERR, "No se encontró columna de código postal ('d_codigo' o 'd_CP') en el CSV.\n");
+    exit(1);
 }
 
 $municipioCache = []; // clave_inegi => municipio_id
@@ -80,7 +92,7 @@ while (($fila = fgetcsv($handle, 0, $delimitador)) !== false) {
     $nombreMunicipio = trim($fila[$col['d_mnpio']]);
     $nombreColonia = trim($fila[$col['d_asenta']]);
     $tipo = trim($fila[$col['d_tipo_asenta']]);
-    $cp = str_pad(trim($fila[$col['d_CP']]), 5, '0', STR_PAD_LEFT);
+    $cp = str_pad(trim($fila[$colCP]), 5, '0', STR_PAD_LEFT);
 
     if (!isset($estadosPorClave[$claveEstado])) {
         $sinEstado++;
