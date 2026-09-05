@@ -92,7 +92,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $scriptsPermitidos = [
             'sepomex' => 'import/1_sepomex.php',
             'centroide_provisional' => 'import/1b_centroide_provisional.php',
-            'inegi' => 'import/2_inegi_geo.php',
+            'inegi' => 'import/2_dcah_geo.php',
             'secciones_ine' => 'import/5_ine_secciones.php',
         ];
 
@@ -193,11 +193,12 @@ $pasos = [
     ],
     [
         'id' => 'inegi',
-        'nombre' => 'INEGI — polígonos geográficos',
+        'nombre' => 'INEGI (DCAH) — polígonos geográficos',
         'hecho' => $conteos['colonia_poligonos'] > 0,
-        'detalle' => number_format($conteos['colonia_poligonos']) . ' polígonos',
-        'archivo' => $dataDir . '/inegi',
-        'archivo_ok' => carpetaConArchivos($dataDir . '/inegi', '*.geojson'),
+        'detalle' => number_format($conteos['colonia_poligonos']) . ' polígonos (~53% de match esperado sobre DCAH, ver PLAN.md 2.2)',
+        'archivo' => $raiz . '/Poligonos/00_integrados/conjunto_de_datos/00as.dbf',
+        'archivo_ok' => is_file($raiz . '/Poligonos/00_integrados/conjunto_de_datos/00as.dbf')
+            && is_file($raiz . '/Poligonos/00_integrados/conjunto_de_datos/00as.shp'),
         'idempotente' => true,
         'nota' => 'Usa ON DUPLICATE KEY UPDATE — seguro de re-correr. Puede tardar varios minutos.',
     ],

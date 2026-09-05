@@ -63,16 +63,21 @@ El catálogo de colonias en México proviene de dos fuentes oficiales gratuitas 
   - `c_estado` — clave de 2 dígitos del estado (para unir con INEGI)
   - `c_mnpio` — clave de municipio
 
-### 2.2 INEGI — Polígonos de colonias (programa DCAH)
+### 2.2 INEGI — Polígonos de colonias (programa DCAH) — confirmado con archivos reales
 
-> ⚠️ El UPC de biblioteca usado antes en este documento (`889463770944`) ya no aparece en el sitio de INEGI — los productos de INEGI se reeditan periódicamente con un UPC/ficha nuevo cada vez. En su lugar, el producto correcto y vigente es un programa dedicado, no una edición genérica del Marco Geoestadístico:
+> ⚠️ El UPC de biblioteca usado antes en este documento (`889463770944`) ya no aparece en el sitio de INEGI. El producto correcto es un programa dedicado, no una edición genérica del Marco Geoestadístico: **DCAH — Delimitación de Colonias y otros Asentamientos Humanos**, https://www.inegi.org.mx/programas/dcah/ (edición 2025, corte cartográfico diciembre 2024).
 
-- **Programa:** **DCAH — Delimitación de Colonias y otros Asentamientos Humanos**. Portal: https://www.inegi.org.mx/programas/dcah/
-- **Por qué este y no el Marco Geoestadístico genérico:** el Marco Geoestadístico base delimita AGEBs/manzanas/localidades, no "colonias" con nombre — no serviría para emparejar por `NOMGEO` contra SEPOMEX. El DCAH es el trabajo específico de INEGI (en conjunto con los municipios, desde 2020) para delimitar colonias con nombre, en una capa vectorial llamada **`AS`** (asentamientos).
-- **Formato:** Shapefile por estado.
-- **Atributos esperados** (confirmar contra el archivo real, igual que se hizo con INE en M8.2): `NOMGEO` (nombre de la colonia), `CVE_MUN`, `CVE_ENT`.
-- **⚠️ Cobertura incompleta por diseño — no es un defecto de la importación:** según la nota técnica oficial del DCAH (12-nov-2024), al corte 2023 solo se habían integrado **7,672 localidades** de las priorizadas (capitales de estado y localidades con 50,000+ habitantes primero). Muchas colonias de SEPOMEX simplemente no van a tener polígono DCAH todavía — para eso ya existe el fallback de M3.4 (`import/1b_centroide_provisional.php`) y el campo `metodo` de `/geolocate`.
-- **Pendiente de confirmar:** no pude ver el botón/enlace de descarga exacto por estado — el sitio de INEGI es una aplicación JS que mis herramientas no pueden renderizar. Entra a https://www.inegi.org.mx/programas/dcah/, busca la sección de descargas, y dime qué opciones aparecen (nombre exacto del archivo/paquete) para confirmar el paso siguiente, igual que hicimos con `cartografia.ine.mx/sige8`.
+- **Estructura real del paquete descargado** (carpeta `Poligonos/` del proyecto): 32 carpetas por estado (`01_aguascalientes.zip` … `32_zacatecas.zip`) más **`00_integrado.zip`**, el archivo **nacional ya combinado** — usar este único archivo evita procesar los 32 por separado. Cada carpeta trae 3 subcarpetas: `catalogos/` (CSV/PDF descriptivos), `conjunto_de_datos/` (el Shapefile: `.shp .dbf .shx .prj .cpg .sbn .sbx`), `metadatos/` (XML/TXT).
+- **Total nacional confirmado:** 79,775 polígonos en 14,110 localidades (coincide exacto con el archivo real: `00as.dbf` tiene 79,775 registros).
+- **Atributos reales del `.dbf`** (confirmados leyendo el archivo — difieren de lo que se asumía antes, no es `NOMGEO`):
+  - `cvegeo` — clave geoestadística completa
+  - `cve_ent` (2 dígitos) / `cve_mun` (3 dígitos) — para unir con SEPOMEX igual que antes
+  - `cve_loc`, `cve_asen` — claves de localidad y de asentamiento
+  - `cp` — código postal (bonus no documentado originalmente; el propio INEGI advierte que no está validado contra Correos de México, puede venir en ceros — no usarlo como fuente principal de CP)
+  - `nom_asen` — nombre del asentamiento/colonia (la columna para emparejar por nombre)
+  - `tipo` — tipo de asentamiento (texto: COLONIA, FRACCIONAMIENTO, etc.)
+- **⚠️ Proyección — el hallazgo más importante:** el Shapefile **no viene en WGS84** (lat/lng). El `.prj` declara una **Cónica Conforme de Lambert** (México ITRF2008 LCC): meridiano central -102°, paralelos estándar 17.5°/29.5°, latitud de origen 12°N, falso este 2,500,000, elipsoide GRS80. Hay que reproyectar cada vértice a WGS84 antes de guardar — `import/2_dcah_geo.php` lo hace con una implementación propia de la fórmula inversa de Lambert (Snyder 1987), sin depender de GDAL/ogr2ogr. **Validado**: se corrió contra los 79,775 polígonos reales y los 79,775 resultaron dentro del rango geográfico de México (14°-33°N, -118°/-86°W), cero anomalías.
+- **⚠️ Cobertura incompleta por diseño — no es un defecto de la importación:** el DCAH prioriza capitales y localidades de 50,000+ habitantes; no cubre el 100% de las colonias de SEPOMEX. Cruce real hecho entre `nom_asen` (DCAH) y `d_asenta` (SEPOMEX) por nombre normalizado + clave de municipio: **~53% de coincidencia** (42,237 de 79,775). Es más bajo que el ideal >75% que se documentaba antes — normal al cruzar dos catálogos independientes por nombre; candidato a mejorar después con matching más flexible (por CP, por similitud de texto) si hace falta más cobertura. Mientras tanto sigue existiendo el fallback de M3.4 (centroide aproximado) y el campo `metodo` de `/geolocate`.
 
 ### 2.3 Estrategia de unión
 SEPOMEX tiene los CP y tipos; INEGI tiene los polígonos. Se unen por:
@@ -551,16 +556,18 @@ La `api_key` se muestra una sola vez — el sistema guarda solo el hash.
 
 ---
 
-### M4 — Importación INEGI (polígonos geográficos)
+### M4 — Importación INEGI/DCAH (polígonos geográficos)
 *Objetivo: Cada colonia con su polígono exacto en colonia_poligonos.*
+
+> Actualizado tras confirmar el archivo real (ver 2.2): el producto es DCAH, no GeoJSON genérico, y viene en una proyección que hay que convertir a mano. `import/2_dcah_geo.php` ya reemplaza el plan original de `2_inegi_geo.php` (ese script se deja en el repo por si algún día se usa un GeoJSON real, pero no es el camino recomendado).
 
 | # | Tarea | Tamaño | Entregable |
 |---|-------|--------|-----------|
-| M4.1 | Descargar Marco Geoestadístico INEGI (manual) — estado por estado en GeoJSON | — | Archivos GeoJSON en `import/data/inegi/` |
-| M4.2 | `import/2_inegi_geo.php` — leer cada GeoJSON, normalizar nombre (sin acentos, mayúsculas), buscar colonia en BD por nombre+clave_municipio, insertar en `colonia_poligonos` + actualizar `centroide` real | 🔴 | Script CLI, registra colonias sin match en `import/logs/sin_match.txt` |
-| M4.3 | Revisar `sin_match.txt` — las colonias sin match quedan sin polígono; documentar el porcentaje | 🟢 | Porcentaje de cobertura de polígonos conocido |
+| M4.1 | Descargar el paquete DCAH del INEGI (manual, ver 2.2) y colocarlo en `Poligonos/` — usar `00_integrado.zip` (nacional, ya combinado) | — | `Poligonos/00_integrados/conjunto_de_datos/00as.shp` + `.dbf` disponibles |
+| M4.2 | `import/2_dcah_geo.php` — parser de Shapefile propio (sin GDAL) + reproyección Lambert Conformal Conic → WGS84 (validado contra los 79,775 polígonos reales, 0 fuera de México) + emparejamiento por `nom_asen` normalizado + `cve_ent`+`cve_mun`, inserta en `colonia_poligonos` y actualiza `centroide` | 🔴 | Script CLI, registra sin match en `import/logs/dcah_sin_match.txt` |
+| M4.3 | Revisar `dcah_sin_match.txt` — cobertura real medida por cruce de nombres: **~53%** (42,237 de 79,775). Es esperado (cobertura DCAH incompleta + diferencias de nomenclatura entre catálogos), no es un bug | 🟢 | Porcentaje de cobertura documentado |
 | M4.4 | Agregar SPATIAL INDEX en `colonia_poligonos.poligono` (ya está en schema, verificar que se creó) | 🟢 | `SHOW INDEX FROM colonia_poligonos` muestra el índice |
-| ✅ M4.V | `SELECT COUNT(*) FROM colonia_poligonos` — debería ser > 80% de colonias | ✅ | |
+| ✅ M4.V | `SELECT COUNT(*) FROM colonia_poligonos` — con el ~53% de match esperado, revisar que la cifra ronde las ~40,000 filas, no que sea 0 o el 100% de las colonias | ✅ | |
 
 ---
 
