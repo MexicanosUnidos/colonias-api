@@ -47,11 +47,11 @@ foreach ($colonias as $c) {
 }
 
 $insertPoligono = $db->prepare(
-    'INSERT INTO colonia_poligonos (colonia_id, poligono) VALUES (?, ST_SRID(ST_GeomFromGeoJSON(?), 0))
+    'INSERT INTO colonia_poligonos (colonia_id, poligono) VALUES (?, ST_GeomFromGeoJSON(?))
      ON DUPLICATE KEY UPDATE poligono = VALUES(poligono)'
 );
 $updateCentroide = $db->prepare(
-    'UPDATE colonias SET centroide = ST_SRID(ST_Centroid(ST_GeomFromGeoJSON(?)), 0) WHERE id = ?'
+    'UPDATE colonias SET centroide = ST_Centroid(ST_GeomFromGeoJSON(?)) WHERE id = ?'
 );
 
 $logPath = __DIR__ . '/logs/sin_match.txt';

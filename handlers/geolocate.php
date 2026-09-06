@@ -41,7 +41,7 @@ $stmt = $db->prepare(
     JOIN colonias c ON c.id = cp.colonia_id
     JOIN municipios m ON m.id = c.municipio_id
     JOIN estados e ON e.id = m.estado_id
-    WHERE ST_Within(ST_SRID(POINT(?, ?), 0), cp.poligono)
+    WHERE ST_Within(POINT(?, ?), cp.poligono)
     LIMIT 1'
 );
 $stmt->execute([$lng, $lat]);

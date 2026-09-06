@@ -200,6 +200,8 @@ cache/
 
 El proyecto usa **SRID 0** (Cartesiano) en lugar de SRID 4326 (WGS84 estándar) para evitar problemas de orden de ejes en MySQL 8 (que invierte lat/lng en SRID 4326). A escala de México la diferencia es < 0.01%.
 
+> ⚠️ **Cómo se logra SRID 0 en la práctica:** simplemente **no especificando ningún SRID** al crear geometrías (`POINT(x,y)`, `ST_GeomFromText(wkt)`, `ST_GeomFromGeoJSON(json)` sin segundo argumento ya devuelven SRID 0 por default). El código *no* usa `ST_SRID(geom, 0)` para forzarlo explícitamente — esa función de 2 argumentos (la que *asigna* un SRID) es exclusiva de MySQL 8.0.3+; el hosting de producción real corre una versión más vieja / MariaDB que no la reconoce, y causaba un HTTP 500 en `/geolocate` y fallas silenciosas en los imports. Ver commit de este fix para el historial completo.
+
 **Convención de almacenamiento:**
 ```
 POINT(longitud, latitud)   — x = lng, y = lat

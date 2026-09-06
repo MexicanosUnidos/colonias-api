@@ -33,7 +33,7 @@ if (empty($promedios)) {
 }
 
 $update = $db->prepare(
-    'UPDATE colonias SET centroide = ST_SRID(POINT(?, ?), 0)
+    'UPDATE colonias SET centroide = POINT(?, ?)
      WHERE codigo_postal = ? AND centroide IS NULL'
 );
 
