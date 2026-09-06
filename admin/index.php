@@ -36,11 +36,30 @@ function execDisponible(): bool
     return function_exists('exec');
 }
 
+/** Ruta del archivo donde se guarda la ruta de PHP CLI que el usuario confirmó a mano. */
+function rutaConfigPhpBin(): string
+{
+    return __DIR__ . '/../config/admin_php_bin.txt';
+}
+
+function validarPhpBin(string $candidato): bool
+{
+    if ($candidato === '' || is_dir($candidato)) {
+        return false;
+    }
+    exec(escapeshellarg($candidato) . ' -v < /dev/null 2>&1', $salida, $codigo);
+    $ok = $codigo === 0 && stripos(implode(' ', $salida), '(cli)') !== false;
+    $salida = [];
+    return $ok;
+}
+
 /**
  * Encuentra un binario de PHP CLI ejecutable. Bare "php" a veces no está
  * en el $PATH que usa exec() en hosting compartido (aunque sí exista un
- * binario real en otra ruta) — se prueban rutas típicas de cPanel/EasyApache
- * y se cachea el resultado en sesión para no re-probar en cada clic.
+ * binario real en otra ruta) — primero se usa la ruta que el usuario haya
+ * guardado a mano (ver formulario "Configurar PHP CLI" en esta página),
+ * si no hay ninguna se prueban rutas típicas de cPanel/EasyApache. Se
+ * cachea el resultado en sesión para no re-probar en cada clic.
  */
 function phpBinDisponible(): ?string
 {
@@ -54,6 +73,14 @@ function phpBinDisponible(): ?string
         return $_SESSION['admin_php_bin'];
     }
 
+    if (is_file(rutaConfigPhpBin())) {
+        $guardado = trim((string) file_get_contents(rutaConfigPhpBin()));
+        if ($guardado !== '' && validarPhpBin($guardado)) {
+            $_SESSION['admin_php_bin'] = $guardado;
+            return $guardado;
+        }
+    }
+
     $candidatos = [PHP_BINARY, 'php'];
     foreach (glob('/opt/cpanel/ea-php*/root/usr/bin/php') ?: [] as $c) {
         $candidatos[] = $c;
@@ -63,19 +90,13 @@ function phpBinDisponible(): ?string
     }
     $candidatos[] = '/usr/bin/php';
 
+    // PHP_BINARY puede apuntar al binario de php-fpm (SAPI "fpm-fcgi"), que
+    // no ejecuta un script CLI de la misma forma — validarPhpBin() exige "(cli)".
     foreach (array_unique($candidatos) as $candidato) {
-        if ($candidato === '' || is_dir($candidato)) {
-            continue;
-        }
-        exec(escapeshellarg($candidato) . ' -v < /dev/null 2>&1', $salida, $codigo);
-        $texto = implode(' ', $salida);
-        // PHP_BINARY puede apuntar al binario de php-fpm (SAPI "fpm-fcgi"),
-        // que no ejecuta un script CLI de la misma forma — exigir "(cli)".
-        if ($codigo === 0 && stripos($texto, '(cli)') !== false) {
+        if (validarPhpBin($candidato)) {
             $_SESSION['admin_php_bin'] = $candidato;
             return $candidato;
         }
-        $salida = [];
     }
 
     $_SESSION['admin_php_bin'] = null;
@@ -127,6 +148,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'texto' => "API key creada para \"$proyecto\". Cópiala ahora, no se puede recuperar después:",
                 'key' => $apiKey,
             ];
+        }
+        header('Location: index.php');
+        exit;
+    }
+
+    if ($accion === 'guardar_php_bin') {
+        $rutaPhp = trim($_POST['php_bin'] ?? '');
+        if ($rutaPhp === '') {
+            @unlink(rutaConfigPhpBin());
+            unset($_SESSION['admin_php_bin']);
+            $_SESSION['admin_mensaje'] = ['tipo' => 'ok', 'texto' => 'Ruta de PHP CLI borrada — se vuelve a autodetectar.'];
+        } elseif (!validarPhpBin($rutaPhp)) {
+            $_SESSION['admin_mensaje'] = [
+                'tipo' => 'error',
+                'texto' => "\"$rutaPhp\" no respondió como un binario de PHP CLI válido (se probó con -v, esperando que la salida diga \"(cli)\"). No se guardó.",
+            ];
+        } else {
+            file_put_contents(rutaConfigPhpBin(), $rutaPhp);
+            $_SESSION['admin_php_bin'] = $rutaPhp;
+            $_SESSION['admin_mensaje'] = ['tipo' => 'ok', 'texto' => "Ruta de PHP CLI guardada y verificada: $rutaPhp"];
         }
         header('Location: index.php');
         exit;
@@ -276,6 +317,10 @@ $pasos = [
 ];
 
 $apiKeys = $db->query('SELECT id, proyecto, activa, ultimo_uso, creado_en FROM api_keys ORDER BY creado_en DESC')->fetchAll();
+
+$execOk = execDisponible();
+$phpBinActual = phpBinDisponible();
+$phpBinEsManual = is_file(rutaConfigPhpBin());
 ?>
 <!DOCTYPE html>
 <html lang="es">
@@ -366,6 +411,27 @@ $apiKeys = $db->query('SELECT id, proyecto, activa, ultimo_uso, creado_en FROM a
         </div>
       <?php endforeach; ?>
     </div>
+  </div>
+
+  <div class="panel">
+    <h2>Ejecución de scripts (PHP CLI)</h2>
+    <p class="detalle">
+      <?php if (!$execOk): ?>
+        ⚠ <code>exec()</code> está deshabilitado en este hosting — los pasos de abajo solo se pueden correr por Cron Job (ver README.md).
+      <?php elseif ($phpBinActual !== null): ?>
+        ✓ Usando: <code><?= htmlspecialchars($phpBinActual) ?></code>
+        <?= $phpBinEsManual ? '(guardado a mano)' : '(detectado automáticamente)' ?>
+      <?php else: ?>
+        ⚠ <code>exec()</code> funciona, pero no se encontró un binario de PHP CLI. Corre el diagnóstico de Cron Job del README para encontrar la ruta correcta en tu hosting, y pégala abajo.
+      <?php endif; ?>
+    </p>
+    <form method="post" style="display:flex; gap:8px; margin-top:8px;">
+      <input type="hidden" name="csrf" value="<?= htmlspecialchars($csrf) ?>">
+      <input type="hidden" name="accion" value="guardar_php_bin">
+      <input type="text" name="php_bin" placeholder="ej. /usr/local/bin/php8.1 (vacío para volver a autodetectar)"
+             value="<?= htmlspecialchars($phpBinEsManual ? (string) $phpBinActual : '') ?>" style="flex:1;">
+      <button type="submit" class="secondary">Guardar</button>
+    </form>
   </div>
 
   <div class="panel">

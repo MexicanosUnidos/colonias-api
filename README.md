@@ -153,7 +153,16 @@ Formularios para probar cada endpoint a mano y un botón "Probar todo" que corre
 
 Para poblar la base de datos sin necesitar SSH: `https://tu-dominio.com/admin/`. Muestra los conteos actuales de cada tabla, y por cada paso de importación (SEPOMEX, centroide provisional, INEGI, secciones INE) indica si ya se corrió, si falta el archivo fuente, y ofrece un botón para ejecutarlo ahí mismo (corre el script real vía `exec()`, muestra la salida). El paso de SEPOMEX no es idempotente — si ya se corrió, pide marcar "forzar" a propósito antes de dejarlo repetirse, para no duplicar colonias por accidente. También incluye un formulario para crear API keys sin usar `curl`.
 
-Si el hosting tiene `exec`/`shell_exec` deshabilitados, el panel lo detecta y te da el comando exacto para correrlo tú mismo vía un Cron Job de cPanel (crea el cron, prográmalo para el minuto siguiente, y bórralo o cámbialo después de que corra una vez).
+Antes de correr cualquier paso, el panel intenta encontrar un binario de PHP CLI utilizable (prueba `PHP_BINARY`, `php`, y rutas típicas de cPanel/EasyApache). Si tu hosting no está en esa lista de rutas típicas (verás "no se encontró un binario de PHP CLI"), encuéntrala tú una vez y pégala en el campo "Ejecución de scripts" del panel — queda guardada y no hace falta volver a buscarla:
+
+1. Crea un Cron Job de diagnóstico (sección "Cron Jobs" en cPanel), programado para 2-3 minutos en el futuro, con este comando:
+   ```
+   for p in /usr/local/bin/php /usr/local/bin/php8.* /opt/cpanel/ea-php*/root/usr/bin/php /usr/bin/php; do echo "== $p =="; $p -v 2>&1; done
+   ```
+2. cPanel manda por correo la salida de cada cron a tu email de contacto — revísalo (a veces cae en spam) y busca cuál ruta imprimió algo como `PHP 8.1.29 (cli) (built: ...)`.
+3. Borra ese cron de diagnóstico, y pega esa ruta exacta en el panel de admin.
+
+Si de plano `exec()` está deshabilitado (no solo falta la ruta), el panel te da el comando exacto para correrlo por Cron Job en su lugar (crea el cron, prográmalo para el minuto siguiente, y bórralo o cámbialo después de que corra una vez — sobre todo el paso de SEPOMEX, que no es seguro de repetir).
 
 ⚠️ Ambas páginas son accesibles por cualquiera que conozca la URL — la clave de administrador es lo único que las protege. No compartas esa clave, y considera borrar `test.php`/`admin/` del servidor una vez que termines de poblar los datos, si el sitio va a quedar público permanentemente.
 
