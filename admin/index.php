@@ -44,7 +44,17 @@ function rutaConfigPhpBin(): string
 
 function validarPhpBin(string $candidato): bool
 {
-    if ($candidato === '' || is_dir($candidato)) {
+    // Bug real encontrado en producción: esta función llamaba a exec()
+    // directamente sin comprobar antes si existe. Si exec() está en
+    // disable_functions, PHP la vuelve "undefined" de verdad — llamarla
+    // no da un warning, tira un Error fatal no controlado (500 crudo).
+    if (!execDisponible() || $candidato === '') {
+        return false;
+    }
+    // is_dir() sobre una ruta fuera de open_basedir (ej. /usr/local/bin/php
+    // en hostings con open_basedir activo) ya solo emite un warning, no
+    // rompe nada — pero se evita si ya sabemos que exec() no sirve.
+    if (is_dir($candidato)) {
         return false;
     }
     exec(escapeshellarg($candidato) . ' -v < /dev/null 2>&1', $salida, $codigo);
@@ -276,6 +286,7 @@ $pasos = [
     [
         'id' => 'sepomex',
         'nombre' => 'SEPOMEX — colonias y municipios',
+        'script' => 'import/1_sepomex.php',
         'hecho' => $conteos['colonias'] > 0,
         'detalle' => number_format($conteos['colonias']) . ' colonias (esperado > 140,000)',
         'archivo' => $dataDir . '/sepomex.csv',
@@ -286,6 +297,7 @@ $pasos = [
     [
         'id' => 'centroide_provisional',
         'nombre' => 'Centroide provisional (promedio por CP)',
+        'script' => 'import/1b_centroide_provisional.php',
         'hecho' => $conteos['colonias_con_centroide'] > 0,
         'detalle' => number_format($conteos['colonias_con_centroide']) . ' colonias con centroide',
         'archivo' => null,
@@ -296,6 +308,7 @@ $pasos = [
     [
         'id' => 'inegi',
         'nombre' => 'INEGI (DCAH) — polígonos geográficos',
+        'script' => 'import/2_dcah_geo.php',
         'hecho' => $conteos['colonia_poligonos'] > 0,
         'detalle' => number_format($conteos['colonia_poligonos']) . ' polígonos (~53% de match esperado sobre DCAH, ver PLAN.md 2.2)',
         'archivo' => $raiz . '/Poligonos/00_integrados/conjunto_de_datos/00as.dbf',
@@ -307,6 +320,7 @@ $pasos = [
     [
         'id' => 'secciones_ine',
         'nombre' => 'INE — secciones electorales (distrito federal/local)',
+        'script' => 'import/5_ine_secciones.php',
         'hecho' => $conteos['secciones_electorales'] > 0,
         'detalle' => number_format($conteos['secciones_electorales']) . ' secciones (esperado 73,268)',
         'archivo' => $dataDir . '/ine_secciones.csv',
@@ -321,6 +335,9 @@ $apiKeys = $db->query('SELECT id, proyecto, activa, ultimo_uso, creado_en FROM a
 $execOk = execDisponible();
 $phpBinActual = phpBinDisponible();
 $phpBinEsManual = is_file(rutaConfigPhpBin());
+// Solo para mostrar el comando de cron sugerido cuando exec() no sirve —
+// no se puede validar aquí porque justo no hay forma de correrlo.
+$phpBinSugerido = $phpBinActual ?? '/usr/local/bin/php';
 ?>
 <!DOCTYPE html>
 <html lang="es">
@@ -417,7 +434,7 @@ $phpBinEsManual = is_file(rutaConfigPhpBin());
     <h2>Ejecución de scripts (PHP CLI)</h2>
     <p class="detalle">
       <?php if (!$execOk): ?>
-        ⚠ <code>exec()</code> está deshabilitado en este hosting — los pasos de abajo solo se pueden correr por Cron Job (ver README.md).
+        ⚠ <code>exec()</code> está deshabilitada en este hosting (confirmado: "Call to undefined function exec()"). Los botones "Ejecutar" de abajo no van a funcionar — usa Cron Job para cada paso, con los comandos ya armados que aparecen junto a cada uno.
       <?php elseif ($phpBinActual !== null): ?>
         ✓ Usando: <code><?= htmlspecialchars($phpBinActual) ?></code>
         <?= $phpBinEsManual ? '(guardado a mano)' : '(detectado automáticamente)' ?>
@@ -425,13 +442,15 @@ $phpBinEsManual = is_file(rutaConfigPhpBin());
         ⚠ <code>exec()</code> funciona, pero no se encontró un binario de PHP CLI. Corre el diagnóstico de Cron Job del README para encontrar la ruta correcta en tu hosting, y pégala abajo.
       <?php endif; ?>
     </p>
-    <form method="post" style="display:flex; gap:8px; margin-top:8px;">
-      <input type="hidden" name="csrf" value="<?= htmlspecialchars($csrf) ?>">
-      <input type="hidden" name="accion" value="guardar_php_bin">
-      <input type="text" name="php_bin" placeholder="ej. /usr/local/bin/php8.1 (vacío para volver a autodetectar)"
-             value="<?= htmlspecialchars($phpBinEsManual ? (string) $phpBinActual : '') ?>" style="flex:1;">
-      <button type="submit" class="secondary">Guardar</button>
-    </form>
+    <?php if ($execOk): ?>
+      <form method="post" style="display:flex; gap:8px; margin-top:8px;">
+        <input type="hidden" name="csrf" value="<?= htmlspecialchars($csrf) ?>">
+        <input type="hidden" name="accion" value="guardar_php_bin">
+        <input type="text" name="php_bin" placeholder="ej. /usr/local/bin/php8.1 (vacío para volver a autodetectar)"
+               value="<?= htmlspecialchars($phpBinEsManual ? (string) $phpBinActual : '') ?>" style="flex:1;">
+        <button type="submit" class="secondary">Guardar</button>
+      </form>
+    <?php endif; ?>
   </div>
 
   <div class="panel">
@@ -456,7 +475,7 @@ $phpBinEsManual = is_file(rutaConfigPhpBin());
           <div class="nota"><?= htmlspecialchars($paso['nota']) ?></div>
         <?php endif; ?>
 
-        <?php if ($paso['archivo_ok']): ?>
+        <?php if ($paso['archivo_ok'] && $execOk): ?>
           <form method="post" onsubmit="return confirm('¿Correr <?= htmlspecialchars(addslashes($paso['nombre'])) ?> ahora?');">
             <input type="hidden" name="csrf" value="<?= htmlspecialchars($csrf) ?>">
             <input type="hidden" name="accion" value="correr_paso">
@@ -468,6 +487,9 @@ $phpBinEsManual = is_file(rutaConfigPhpBin());
               <button type="submit"><?= $paso['hecho'] ? 'Volver a correr' : 'Ejecutar' ?></button>
             <?php endif; ?>
           </form>
+        <?php elseif ($paso['archivo_ok'] && !$execOk): ?>
+          <div class="detalle">Comando de Cron Job para este paso (ajusta la ruta de PHP si no es la tuya):</div>
+          <pre style="background:#0f1115; color:#d1d5db; border-radius:6px; padding:8px 10px; font-family:var(--mono); font-size:0.78rem; overflow-x:auto; margin-top:4px; user-select:all;"><?= htmlspecialchars($phpBinSugerido . ' ' . $raiz . '/' . $paso['script']) ?></pre>
         <?php endif; ?>
       </div>
     <?php endforeach; ?>
