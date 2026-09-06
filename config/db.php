@@ -66,6 +66,19 @@ function jsonResponse(bool $ok, $dataOrError, int $codigo = 200, ?float $startTi
         $payload['codigo'] = $codigo;
     }
 
-    echo json_encode($payload, JSON_UNESCAPED_UNICODE);
+    $json = json_encode($payload, JSON_UNESCAPED_UNICODE);
+    if ($json === false) {
+        // json_encode() puede fallar en silencio (ej. texto que no es UTF-8
+        // válido) y dejar el body vacío con HTTP 200 -- eso es peor que un
+        // error visible: parece éxito pero no trae nada. Nunca dejarlo así.
+        http_response_code(500);
+        $json = json_encode([
+            'ok' => false,
+            'error' => 'Error interno al generar la respuesta JSON: ' . json_last_error_msg(),
+            'codigo' => 500,
+        ]);
+    }
+
+    echo $json;
     exit;
 }
