@@ -7,6 +7,8 @@ API REST/JSON que expone el catálogo completo de colonias de México, con dos c
 
 Ver [`docs/PLAN.md`](docs/PLAN.md) para el plan completo de desarrollo, arquitectura y milestones.
 
+**¿Vas a consumir esta API desde otro sitio?** Este README es para quien instala/administra el servicio. Manda a tu equipo de desarrollo a [`docs/INTEGRACION.md`](docs/INTEGRACION.md) — es el manual pensado para eso: autenticación, cada endpoint con ejemplos de request/respuesta, códigos de error y snippets de integración en JS/PHP.
+
 ## Instalación
 
 1. Clonar el repo en el servidor (PHP 8.x + MySQL 8.x).
