@@ -31,6 +31,7 @@ if (!$colonia) {
     jsonResponse(false, 'Colonia no encontrada', 404);
 }
 
+$colonia = castIds($colonia, ['id', 'municipio_id', 'estado_id']);
 $colonia['tiene_poligono'] = (bool) $colonia['tiene_poligono'];
 $colonia['lat'] = $colonia['lat'] !== null ? (float) $colonia['lat'] : null;
 $colonia['lng'] = $colonia['lng'] !== null ? (float) $colonia['lng'] : null;

@@ -58,7 +58,7 @@ if (ctype_digit($q) && strlen($q) === 5) {
 
 $stmt = $db->prepare($sql);
 $stmt->execute($params);
-$resultados = $stmt->fetchAll();
+$resultados = castIds($stmt->fetchAll(), ['id', 'municipio_id', 'estado_id']);
 
 cacheSet($cacheKey, $resultados);
 

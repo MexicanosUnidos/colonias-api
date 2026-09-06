@@ -49,10 +49,7 @@ if (!$distrito) {
     jsonResponse(false, 'Sección electoral no encontrada para ese estado', 404);
 }
 
-$distrito['estado_id'] = (int) $distrito['estado_id'];
-$distrito['distrito_federal'] = (int) $distrito['distrito_federal'];
-$distrito['distrito_local'] = $distrito['distrito_local'] !== null ? (int) $distrito['distrito_local'] : null;
-$distrito['municipio_id'] = $distrito['municipio_id'] !== null ? (int) $distrito['municipio_id'] : null;
+$distrito = castIds($distrito, ['estado_id', 'distrito_federal', 'distrito_local', 'municipio_id']);
 
 // M9.8: TTL largo — el catálogo solo cambia si el INE redistritó.
 cacheSet($cacheKey, $distrito, 30 * 86400);
