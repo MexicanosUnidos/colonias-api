@@ -8,8 +8,10 @@
  * una confirmación extra ("forzar") para volver a correrse.
  *
  * No requiere SSH: corre los scripts de import/ como subproceso desde
- * PHP (shell_exec). Si el hosting tiene esa función deshabilitada,
- * lo indica y sugiere el truco de Cron Jobs de cPanel en su lugar.
+ * PHP (exec()), probando varias rutas típicas de PHP CLI en cPanel si
+ * el simple "php" no está en el $PATH. Si exec() está deshabilitado o
+ * no se encuentra ningún binario de PHP, lo indica y sugiere el truco
+ * de Cron Jobs de cPanel en su lugar.
  */
 
 require_once __DIR__ . '/../config/db.php';
@@ -26,13 +28,58 @@ if (empty($_SESSION['admin_csrf'])) {
 }
 $csrf = $_SESSION['admin_csrf'];
 
-function shellExecDisponible(): bool
+function execDisponible(): bool
 {
-    if (!function_exists('shell_exec') || !function_exists('exec')) {
-        return false;
+    // Solo se usa exec() en este panel — no shell_exec(). Antes este chequeo
+    // exigía ambas funciones y por eso bloqueaba de más en hostings que
+    // deshabilitan shell_exec pero sí dejan exec() (caso real encontrado).
+    return function_exists('exec');
+}
+
+/**
+ * Encuentra un binario de PHP CLI ejecutable. Bare "php" a veces no está
+ * en el $PATH que usa exec() en hosting compartido (aunque sí exista un
+ * binario real en otra ruta) — se prueban rutas típicas de cPanel/EasyApache
+ * y se cachea el resultado en sesión para no re-probar en cada clic.
+ */
+function phpBinDisponible(): ?string
+{
+    if (!execDisponible()) {
+        return null;
     }
-    $deshabilitadas = array_map('trim', explode(',', (string) ini_get('disable_functions')));
-    return !in_array('exec', $deshabilitadas, true);
+    if (session_status() !== PHP_SESSION_ACTIVE) {
+        session_start();
+    }
+    if (array_key_exists('admin_php_bin', $_SESSION)) {
+        return $_SESSION['admin_php_bin'];
+    }
+
+    $candidatos = [PHP_BINARY, 'php'];
+    foreach (glob('/opt/cpanel/ea-php*/root/usr/bin/php') ?: [] as $c) {
+        $candidatos[] = $c;
+    }
+    foreach (glob('/usr/local/bin/php*') ?: [] as $c) {
+        $candidatos[] = $c;
+    }
+    $candidatos[] = '/usr/bin/php';
+
+    foreach (array_unique($candidatos) as $candidato) {
+        if ($candidato === '' || is_dir($candidato)) {
+            continue;
+        }
+        exec(escapeshellarg($candidato) . ' -v < /dev/null 2>&1', $salida, $codigo);
+        $texto = implode(' ', $salida);
+        // PHP_BINARY puede apuntar al binario de php-fpm (SAPI "fpm-fcgi"),
+        // que no ejecuta un script CLI de la misma forma — exigir "(cli)".
+        if ($codigo === 0 && stripos($texto, '(cli)') !== false) {
+            $_SESSION['admin_php_bin'] = $candidato;
+            return $candidato;
+        }
+        $salida = [];
+    }
+
+    $_SESSION['admin_php_bin'] = null;
+    return null;
 }
 
 function carpetaConArchivos(string $dir, string $patron = '*'): bool
@@ -123,18 +170,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             exit;
         }
 
-        if (!shellExecDisponible()) {
+        $phpBin = phpBinDisponible();
+
+        if (!execDisponible()) {
             $_SESSION['admin_mensaje'] = [
                 'tipo' => 'error',
-                'texto' => 'La función exec/shell_exec está deshabilitada en este hosting. No se puede correr desde aquí. '
+                'texto' => 'La función exec() está deshabilitada en este hosting. No se puede correr desde aquí. '
                     . 'Usa un Cron Job en cPanel con el comando: php ' . $scriptsPermitidos[$pasoId] . ' (ver README.md).',
             ];
             header('Location: index.php');
             exit;
         }
 
+        if ($phpBin === null) {
+            $_SESSION['admin_mensaje'] = [
+                'tipo' => 'error',
+                'texto' => 'exec() funciona, pero no encontré un binario de PHP CLI ejecutable en este hosting '
+                    . '(ni "php", ni las rutas típicas de cPanel). Necesitas correrlo por Cron Job indicando tú la '
+                    . 'ruta exacta al PHP CLI de tu cuenta (ver README.md) — pídesela a tu hosting si no la conoces: '
+                    . 'import/' . basename($scriptsPermitidos[$pasoId]),
+            ];
+            header('Location: index.php');
+            exit;
+        }
+
         $rutaScript = $raiz . '/' . $scriptsPermitidos[$pasoId];
-        $comando = 'cd ' . escapeshellarg($raiz) . ' && php ' . escapeshellarg($rutaScript) . ' 2>&1';
+        $comando = 'cd ' . escapeshellarg($raiz) . ' && ' . escapeshellarg($phpBin) . ' ' . escapeshellarg($rutaScript) . ' < /dev/null 2>&1';
 
         $inicio = microtime(true);
         exec($comando, $lineasSalida, $codigoSalida);
