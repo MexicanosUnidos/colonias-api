@@ -220,7 +220,7 @@ $pasos = [
         'nombre' => 'INEGI (DCAH) — polígonos geográficos',
         'script' => 'import/2_dcah_geo.php',
         'hecho' => $conteos['colonia_poligonos'] > 0,
-        'detalle' => number_format($conteos['colonia_poligonos']) . ' polígonos (~41.5% de match esperado sobre DCAH, ver PLAN.md 2.2)',
+        'detalle' => number_format($conteos['colonia_poligonos']) . ' polígonos (~53% de match esperado sobre DCAH, ver PLAN.md 2.2)',
         'archivo' => $raiz . '/Poligonos/00_integrados/conjunto_de_datos/00as.dbf',
         'archivo_ok' => is_file($raiz . '/Poligonos/00_integrados/conjunto_de_datos/00as.dbf')
             && is_file($raiz . '/Poligonos/00_integrados/conjunto_de_datos/00as.shp'),

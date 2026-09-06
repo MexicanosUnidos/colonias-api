@@ -295,8 +295,14 @@ async function llamar(nombre) {
   try {
     const resp = await fetch(url, { headers });
     const ms = Math.round(performance.now() - inicio);
+    const texto = await resp.text();
     let data;
-    try { data = await resp.json(); } catch { data = { ok: false, error: 'Respuesta no es JSON válido', codigo: resp.status }; }
+    try {
+      data = texto === '' ? { ok: false, error: '(respuesta vacía, 0 bytes)', codigo: resp.status } : JSON.parse(texto);
+    } catch {
+      // Mostrar el texto crudo en vez de tragárselo — así se ve qué se coló antes/en vez del JSON.
+      data = { ok: false, error: 'Respuesta no es JSON válido', codigo: resp.status, respuesta_cruda: texto };
+    }
     return { status: resp.status, ms, data, url };
   } catch (e) {
     const ms = Math.round(performance.now() - inicio);
