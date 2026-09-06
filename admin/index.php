@@ -112,6 +112,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
 
+    if ($accion === 'reparar_estados') {
+        $rutaScript = $raiz . '/import/0b_fix_estados_utf8.php';
+        $inicio = microtime(true);
+        try {
+            $salida = ejecutarImportEnProceso($rutaScript);
+            $duracion = round(microtime(true) - $inicio, 1);
+            $_SESSION['admin_mensaje'] = [
+                'tipo' => 'ok',
+                'texto' => "Terminó en {$duracion}s:",
+                'salida' => $salida !== '' ? $salida : '(sin salida)',
+            ];
+        } catch (Throwable $e) {
+            $duracion = round(microtime(true) - $inicio, 1);
+            $_SESSION['admin_mensaje'] = [
+                'tipo' => 'error',
+                'texto' => "Falló después de {$duracion}s:",
+                'salida' => $e->getMessage(),
+            ];
+        }
+        header('Location: index.php');
+        exit;
+    }
+
     if ($accion === 'correr_paso') {
         $pasoId = $_POST['paso'] ?? '';
         $forzar = isset($_POST['forzar']);
@@ -330,6 +353,19 @@ $apiKeys = $db->query('SELECT id, proyecto, activa, ultimo_uso, creado_en FROM a
           <div class="l"><?= htmlspecialchars(str_replace('_', ' ', $nombre)) ?></div>
         </div>
       <?php endforeach; ?>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Mantenimiento</h2>
+    <div class="paso">
+      <div class="paso-head"><strong>Reparar encoding de estados</strong></div>
+      <div class="detalle">Corrige nombres con acentos (México, Querétaro, etc.) que hayan quedado con bytes UTF-8 inválidos por haber importado <code>schema.sql</code> vía phpMyAdmin. Seguro de correr las veces que haga falta.</div>
+      <form method="post">
+        <input type="hidden" name="csrf" value="<?= htmlspecialchars($csrf) ?>">
+        <input type="hidden" name="accion" value="reparar_estados">
+        <button type="submit" class="secondary">Ejecutar reparación</button>
+      </form>
     </div>
   </div>
 
