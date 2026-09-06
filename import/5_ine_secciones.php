@@ -19,16 +19,13 @@
  */
 
 require_once __DIR__ . '/../config/db.php';
+require_once __DIR__ . '/_admin_run.php';
 
-if (PHP_SAPI !== 'cli') {
-    fwrite(STDERR, "Este script solo puede ejecutarse por CLI.\n");
-    exit(1);
-}
+permitirSoloCli();
 
 $csvPath = __DIR__ . '/data/ine_secciones.csv';
 if (!is_file($csvPath)) {
-    fwrite(STDERR, "No se encontró $csvPath. Descarga el catálogo de Secciones Electorales del INE primero (ver M8.1).\n");
-    exit(1);
+    abortarImport("No se encontró $csvPath. Descarga el catálogo de Secciones Electorales del INE primero (ver M8.1).");
 }
 
 // M8.2: alias de columnas conocidos. Ajustar según el archivo real.
@@ -58,8 +55,7 @@ function abrirCsv(string $path, array &$col, array $aliases): array
 {
     $handle = fopen($path, 'r');
     if ($handle === false) {
-        fwrite(STDERR, "No se pudo abrir $path\n");
-        exit(1);
+        abortarImport("No se pudo abrir $path");
     }
 
     $primeraLinea = fgets($handle);
@@ -87,8 +83,7 @@ $col = [];
 
 foreach (['seccion', 'clave_estado', 'distrito_federal'] as $requerido) {
     if (!isset($col[$requerido])) {
-        fwrite(STDERR, "No se encontró una columna para '$requerido'. Revisa el encabezado real del CSV y agrega el nombre a \$aliases en este script (ver M8.2).\n");
-        exit(1);
+        abortarImport("No se encontró una columna para '$requerido'. Revisa el encabezado real del CSV y agrega el nombre a \$aliases en este script (ver M8.2).");
     }
 }
 

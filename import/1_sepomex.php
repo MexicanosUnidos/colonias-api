@@ -8,21 +8,20 @@
  */
 
 require_once __DIR__ . '/../config/db.php';
+require_once __DIR__ . '/_admin_run.php';
 
-if (PHP_SAPI !== 'cli') {
-    fwrite(STDERR, "Este script solo puede ejecutarse por CLI.\n");
-    exit(1);
-}
+permitirSoloCli();
 
 $csvPath = __DIR__ . '/data/sepomex.csv';
 if (!is_file($csvPath)) {
-    fwrite(STDERR, "No se encontró $csvPath. Descarga el CSV de SEPOMEX primero (ver M3.1).\n");
-    exit(1);
+    abortarImport("No se encontró $csvPath. Descarga el CSV de SEPOMEX primero (ver M3.1).");
 }
 
-function normalizarClave(string $estado, string $municipio): string
-{
-    return str_pad($estado, 2, '0', STR_PAD_LEFT) . str_pad($municipio, 3, '0', STR_PAD_LEFT);
+if (!function_exists('normalizarClave')) {
+    function normalizarClave(string $estado, string $municipio): string
+    {
+        return str_pad($estado, 2, '0', STR_PAD_LEFT) . str_pad($municipio, 3, '0', STR_PAD_LEFT);
+    }
 }
 
 $db = getDB();
@@ -35,8 +34,7 @@ foreach ($stmt->fetchAll() as $row) {
 
 $handle = fopen($csvPath, 'r');
 if ($handle === false) {
-    fwrite(STDERR, "No se pudo abrir $csvPath\n");
-    exit(1);
+    abortarImport("No se pudo abrir $csvPath");
 }
 
 // Detectar delimitador y encabezado
@@ -51,8 +49,7 @@ $col = array_flip($encabezado);
 $requeridas = ['d_asenta', 'd_tipo_asenta', 'd_mnpio', 'd_estado', 'c_estado', 'c_mnpio'];
 foreach ($requeridas as $r) {
     if (!isset($col[$r])) {
-        fwrite(STDERR, "Columna requerida '$r' no encontrada en el CSV.\n");
-        exit(1);
+        abortarImport("Columna requerida '$r' no encontrada en el CSV.");
     }
 }
 
@@ -64,8 +61,7 @@ foreach ($requeridas as $r) {
 // usa un CSV distinto que sí lo use correctamente.
 $colCP = $col['d_codigo'] ?? $col['d_CP'] ?? null;
 if ($colCP === null) {
-    fwrite(STDERR, "No se encontró columna de código postal ('d_codigo' o 'd_CP') en el CSV.\n");
-    exit(1);
+    abortarImport("No se encontró columna de código postal ('d_codigo' o 'd_CP') en el CSV.");
 }
 
 $municipioCache = []; // clave_inegi => municipio_id

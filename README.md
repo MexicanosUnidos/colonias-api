@@ -151,18 +151,11 @@ Formularios para probar cada endpoint a mano y un botón "Probar todo" que corre
 
 ### Panel de administración — `admin/`
 
-Para poblar la base de datos sin necesitar SSH: `https://tu-dominio.com/admin/`. Muestra los conteos actuales de cada tabla, y por cada paso de importación (SEPOMEX, centroide provisional, INEGI, secciones INE) indica si ya se corrió, si falta el archivo fuente, y ofrece un botón para ejecutarlo ahí mismo (corre el script real vía `exec()`, muestra la salida). El paso de SEPOMEX no es idempotente — si ya se corrió, pide marcar "forzar" a propósito antes de dejarlo repetirse, para no duplicar colonias por accidente. También incluye un formulario para crear API keys sin usar `curl`.
+Para poblar la base de datos sin necesitar SSH ni Cron Jobs: `https://tu-dominio.com/admin/`. Muestra los conteos actuales de cada tabla, y por cada paso de importación (SEPOMEX, centroide provisional, INEGI/DCAH, secciones INE) indica si ya se corrió, si falta el archivo fuente, y ofrece un botón para ejecutarlo ahí mismo. El paso de SEPOMEX no es idempotente — si ya se corrió, pide marcar "forzar" a propósito antes de dejarlo repetirse, para no duplicar colonias por accidente. También incluye un formulario para crear API keys sin usar `curl`.
 
-Antes de correr cualquier paso, el panel intenta encontrar un binario de PHP CLI utilizable (prueba `PHP_BINARY`, `php`, y rutas típicas de cPanel/EasyApache). Si tu hosting no está en esa lista de rutas típicas (verás "no se encontró un binario de PHP CLI"), encuéntrala tú una vez y pégala en el campo "Ejecución de scripts" del panel — queda guardada y no hace falta volver a buscarla:
+**Cómo corre cada paso:** el script de `import/` se incluye (`include`) dentro del mismo proceso PHP del panel — no usa `exec()`/`shell_exec()` ni depende de que el hosting tenga Cron Jobs disponibles (encontramos en producción real un hosting con `exec()` totalmente deshabilitado y sin Cron Jobs en el plan; este enfoque funciona ahí igual). El precio es que el import comparte el límite de tiempo del propio request web: el panel intenta subirlo (`set_time_limit(0)`) pero algunos hostings imponen un tope duro a nivel de servidor que PHP no puede cambiar. Los pasos más pesados (SEPOMEX ~13s, INEGI/DCAH ~45s en una prueba real con datos completos) deberían entrar sin problema en la mayoría de hostings compartidos; si tu hosting corta requests muy agresivamente y un paso se queda a medias, la salida parcial te dice hasta dónde llegó — los pasos con `ON DUPLICATE KEY UPDATE` (todos menos SEPOMEX) son seguros de volver a intentar.
 
-1. Crea un Cron Job de diagnóstico (sección "Cron Jobs" en cPanel), programado para 2-3 minutos en el futuro, con este comando:
-   ```
-   for p in /usr/local/bin/php /usr/local/bin/php8.* /opt/cpanel/ea-php*/root/usr/bin/php /usr/bin/php; do echo "== $p =="; $p -v 2>&1; done
-   ```
-2. cPanel manda por correo la salida de cada cron a tu email de contacto — revísalo (a veces cae en spam) y busca cuál ruta imprimió algo como `PHP 8.1.29 (cli) (built: ...)`.
-3. Borra ese cron de diagnóstico, y pega esa ruta exacta en el panel de admin.
-
-Si de plano `exec()` está deshabilitado (no solo falta la ruta), el panel te da el comando exacto para correrlo por Cron Job en su lugar (crea el cron, prográmalo para el minuto siguiente, y bórralo o cámbialo después de que corra una vez — sobre todo el paso de SEPOMEX, que no es seguro de repetir).
+Si tu plan sí incluye Cron Jobs y prefieres correr los scripts como procesos aparte de todos modos, se puede: `php import/1_sepomex.php` (y los demás, en el mismo orden que muestra el panel) funcionan igual por CLI normal, sin cambios.
 
 ⚠️ Ambas páginas son accesibles por cualquiera que conozca la URL — la clave de administrador es lo único que las protege. No compartas esa clave, y considera borrar `test.php`/`admin/` del servidor una vez que termines de poblar los datos, si el sitio va a quedar público permanentemente.
 

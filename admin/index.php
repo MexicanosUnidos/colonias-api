@@ -7,11 +7,14 @@
  * los pasos que no son seguros de repetir (duplicarían datos) piden
  * una confirmación extra ("forzar") para volver a correrse.
  *
- * No requiere SSH: corre los scripts de import/ como subproceso desde
- * PHP (exec()), probando varias rutas típicas de PHP CLI en cPanel si
- * el simple "php" no está en el $PATH. Si exec() está deshabilitado o
- * no se encuentra ningún binario de PHP, lo indica y sugiere el truco
- * de Cron Jobs de cPanel en su lugar.
+ * No requiere SSH ni exec()/shell_exec(): los scripts de import/ se
+ * corren *dentro del mismo proceso PHP* de este panel (con include),
+ * no como subproceso — así funciona incluso en hostings que deshabilitan
+ * exec() por completo (caso real encontrado en producción). El precio es
+ * que el import comparte el límite de tiempo de ejecución del propio
+ * request web; se intenta subirlo, pero en hostings muy restrictivos un
+ * import grande (SEPOMEX, INEGI) podría no alcanzar a terminar — en ese
+ * caso, la única alternativa es un Cron Job si tu plan lo incluye.
  */
 
 require_once __DIR__ . '/../config/db.php';
@@ -28,89 +31,35 @@ if (empty($_SESSION['admin_csrf'])) {
 }
 $csrf = $_SESSION['admin_csrf'];
 
-function execDisponible(): bool
-{
-    // Solo se usa exec() en este panel — no shell_exec(). Antes este chequeo
-    // exigía ambas funciones y por eso bloqueaba de más en hostings que
-    // deshabilitan shell_exec pero sí dejan exec() (caso real encontrado).
-    return function_exists('exec');
-}
-
-/** Ruta del archivo donde se guarda la ruta de PHP CLI que el usuario confirmó a mano. */
-function rutaConfigPhpBin(): string
-{
-    return __DIR__ . '/../config/admin_php_bin.txt';
-}
-
-function validarPhpBin(string $candidato): bool
-{
-    // Bug real encontrado en producción: esta función llamaba a exec()
-    // directamente sin comprobar antes si existe. Si exec() está en
-    // disable_functions, PHP la vuelve "undefined" de verdad — llamarla
-    // no da un warning, tira un Error fatal no controlado (500 crudo).
-    if (!execDisponible() || $candidato === '') {
-        return false;
-    }
-    // is_dir() sobre una ruta fuera de open_basedir (ej. /usr/local/bin/php
-    // en hostings con open_basedir activo) ya solo emite un warning, no
-    // rompe nada — pero se evita si ya sabemos que exec() no sirve.
-    if (is_dir($candidato)) {
-        return false;
-    }
-    exec(escapeshellarg($candidato) . ' -v < /dev/null 2>&1', $salida, $codigo);
-    $ok = $codigo === 0 && stripos(implode(' ', $salida), '(cli)') !== false;
-    $salida = [];
-    return $ok;
-}
-
 /**
- * Encuentra un binario de PHP CLI ejecutable. Bare "php" a veces no está
- * en el $PATH que usa exec() en hosting compartido (aunque sí exista un
- * binario real en otra ruta) — primero se usa la ruta que el usuario haya
- * guardado a mano (ver formulario "Configurar PHP CLI" en esta página),
- * si no hay ninguna se prueban rutas típicas de cPanel/EasyApache. Se
- * cachea el resultado en sesión para no re-probar en cada clic.
+ * Corre un script de import/ en el mismo proceso PHP (sin exec()).
+ * Define COLONIAS_MODO_ADMIN para que el script use excepciones en vez
+ * de exit() en sus rutas de error (ver import/_admin_run.php) — exit()
+ * dentro de un include mataría también a este panel, no solo al script.
+ * Se ejecuta dentro de una función para que las variables/funciones del
+ * script no se mezclen con las de esta página.
+ *
+ * Nota: si en el futuro un mismo request llegara a correr dos scripts
+ * (hoy no pasa: cada request solo corre uno y redirige), un segundo
+ * include del mismo archivo fallaría por funciones duplicadas — no es
+ * un caso alcanzable con el flujo actual de este panel.
  */
-function phpBinDisponible(): ?string
+function ejecutarImportEnProceso(string $rutaScript): string
 {
-    if (!execDisponible()) {
-        return null;
+    if (!defined('COLONIAS_MODO_ADMIN')) {
+        define('COLONIAS_MODO_ADMIN', true);
     }
-    if (session_status() !== PHP_SESSION_ACTIVE) {
-        session_start();
-    }
-    if (array_key_exists('admin_php_bin', $_SESSION)) {
-        return $_SESSION['admin_php_bin'];
-    }
+    @set_time_limit(0);
+    @ini_set('memory_limit', '512M');
 
-    if (is_file(rutaConfigPhpBin())) {
-        $guardado = trim((string) file_get_contents(rutaConfigPhpBin()));
-        if ($guardado !== '' && validarPhpBin($guardado)) {
-            $_SESSION['admin_php_bin'] = $guardado;
-            return $guardado;
-        }
+    ob_start();
+    try {
+        include $rutaScript;
+    } catch (Throwable $e) {
+        $parcial = ob_get_clean();
+        throw new RuntimeException(trim($parcial . "\n\nERROR: " . $e->getMessage()));
     }
-
-    $candidatos = [PHP_BINARY, 'php'];
-    foreach (glob('/opt/cpanel/ea-php*/root/usr/bin/php') ?: [] as $c) {
-        $candidatos[] = $c;
-    }
-    foreach (glob('/usr/local/bin/php*') ?: [] as $c) {
-        $candidatos[] = $c;
-    }
-    $candidatos[] = '/usr/bin/php';
-
-    // PHP_BINARY puede apuntar al binario de php-fpm (SAPI "fpm-fcgi"), que
-    // no ejecuta un script CLI de la misma forma — validarPhpBin() exige "(cli)".
-    foreach (array_unique($candidatos) as $candidato) {
-        if (validarPhpBin($candidato)) {
-            $_SESSION['admin_php_bin'] = $candidato;
-            return $candidato;
-        }
-    }
-
-    $_SESSION['admin_php_bin'] = null;
-    return null;
+    return trim(ob_get_clean());
 }
 
 function carpetaConArchivos(string $dir, string $patron = '*'): bool
@@ -163,26 +112,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
 
-    if ($accion === 'guardar_php_bin') {
-        $rutaPhp = trim($_POST['php_bin'] ?? '');
-        if ($rutaPhp === '') {
-            @unlink(rutaConfigPhpBin());
-            unset($_SESSION['admin_php_bin']);
-            $_SESSION['admin_mensaje'] = ['tipo' => 'ok', 'texto' => 'Ruta de PHP CLI borrada — se vuelve a autodetectar.'];
-        } elseif (!validarPhpBin($rutaPhp)) {
-            $_SESSION['admin_mensaje'] = [
-                'tipo' => 'error',
-                'texto' => "\"$rutaPhp\" no respondió como un binario de PHP CLI válido (se probó con -v, esperando que la salida diga \"(cli)\"). No se guardó.",
-            ];
-        } else {
-            file_put_contents(rutaConfigPhpBin(), $rutaPhp);
-            $_SESSION['admin_php_bin'] = $rutaPhp;
-            $_SESSION['admin_mensaje'] = ['tipo' => 'ok', 'texto' => "Ruta de PHP CLI guardada y verificada: $rutaPhp"];
-        }
-        header('Location: index.php');
-        exit;
-    }
-
     if ($accion === 'correr_paso') {
         $pasoId = $_POST['paso'] ?? '';
         $forzar = isset($_POST['forzar']);
@@ -202,7 +131,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         // Re-verificar estado justo antes de correr (no confiar en la UI).
         $coloniasCount = contar($db, 'SELECT COUNT(*) FROM colonias');
-        $seccionesCount = contar($db, 'SELECT COUNT(*) FROM secciones_electorales');
 
         $yaHecho = [
             'sepomex' => $coloniasCount > 0,
@@ -221,42 +149,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             exit;
         }
 
-        $phpBin = phpBinDisponible();
-
-        if (!execDisponible()) {
-            $_SESSION['admin_mensaje'] = [
-                'tipo' => 'error',
-                'texto' => 'La función exec() está deshabilitada en este hosting. No se puede correr desde aquí. '
-                    . 'Usa un Cron Job en cPanel con el comando: php ' . $scriptsPermitidos[$pasoId] . ' (ver README.md).',
-            ];
-            header('Location: index.php');
-            exit;
-        }
-
-        if ($phpBin === null) {
-            $_SESSION['admin_mensaje'] = [
-                'tipo' => 'error',
-                'texto' => 'exec() funciona, pero no encontré un binario de PHP CLI ejecutable en este hosting '
-                    . '(ni "php", ni las rutas típicas de cPanel). Necesitas correrlo por Cron Job indicando tú la '
-                    . 'ruta exacta al PHP CLI de tu cuenta (ver README.md) — pídesela a tu hosting si no la conoces: '
-                    . 'import/' . basename($scriptsPermitidos[$pasoId]),
-            ];
-            header('Location: index.php');
-            exit;
-        }
-
         $rutaScript = $raiz . '/' . $scriptsPermitidos[$pasoId];
-        $comando = 'cd ' . escapeshellarg($raiz) . ' && ' . escapeshellarg($phpBin) . ' ' . escapeshellarg($rutaScript) . ' < /dev/null 2>&1';
-
         $inicio = microtime(true);
-        exec($comando, $lineasSalida, $codigoSalida);
-        $duracion = round(microtime(true) - $inicio, 1);
-
-        $_SESSION['admin_mensaje'] = [
-            'tipo' => $codigoSalida === 0 ? 'ok' : 'error',
-            'texto' => "Terminó en {$duracion}s con código de salida $codigoSalida:",
-            'salida' => implode("\n", $lineasSalida),
-        ];
+        try {
+            $salida = ejecutarImportEnProceso($rutaScript);
+            $duracion = round(microtime(true) - $inicio, 1);
+            $_SESSION['admin_mensaje'] = [
+                'tipo' => 'ok',
+                'texto' => "Terminó en {$duracion}s:",
+                'salida' => $salida !== '' ? $salida : '(sin salida)',
+            ];
+        } catch (Throwable $e) {
+            $duracion = round(microtime(true) - $inicio, 1);
+            $_SESSION['admin_mensaje'] = [
+                'tipo' => 'error',
+                'texto' => "Falló después de {$duracion}s:",
+                'salida' => $e->getMessage(),
+            ];
+        }
         header('Location: index.php');
         exit;
     }
@@ -310,12 +220,12 @@ $pasos = [
         'nombre' => 'INEGI (DCAH) — polígonos geográficos',
         'script' => 'import/2_dcah_geo.php',
         'hecho' => $conteos['colonia_poligonos'] > 0,
-        'detalle' => number_format($conteos['colonia_poligonos']) . ' polígonos (~53% de match esperado sobre DCAH, ver PLAN.md 2.2)',
+        'detalle' => number_format($conteos['colonia_poligonos']) . ' polígonos (~41.5% de match esperado sobre DCAH, ver PLAN.md 2.2)',
         'archivo' => $raiz . '/Poligonos/00_integrados/conjunto_de_datos/00as.dbf',
         'archivo_ok' => is_file($raiz . '/Poligonos/00_integrados/conjunto_de_datos/00as.dbf')
             && is_file($raiz . '/Poligonos/00_integrados/conjunto_de_datos/00as.shp'),
         'idempotente' => true,
-        'nota' => 'Usa ON DUPLICATE KEY UPDATE — seguro de re-correr. Puede tardar varios minutos.',
+        'nota' => 'Usa ON DUPLICATE KEY UPDATE — seguro de re-correr. El más pesado: puede tardar varios minutos.',
     ],
     [
         'id' => 'secciones_ine',
@@ -331,13 +241,6 @@ $pasos = [
 ];
 
 $apiKeys = $db->query('SELECT id, proyecto, activa, ultimo_uso, creado_en FROM api_keys ORDER BY creado_en DESC')->fetchAll();
-
-$execOk = execDisponible();
-$phpBinActual = phpBinDisponible();
-$phpBinEsManual = is_file(rutaConfigPhpBin());
-// Solo para mostrar el comando de cron sugerido cuando exec() no sirve —
-// no se puede validar aquí porque justo no hay forma de correrlo.
-$phpBinSugerido = $phpBinActual ?? '/usr/local/bin/php';
 ?>
 <!DOCTYPE html>
 <html lang="es">
@@ -404,7 +307,7 @@ $phpBinSugerido = $phpBinActual ?? '/usr/local/bin/php';
     <h1>⚙ ColoniasAPI — Administración</h1>
     <a href="../test.php">🧪 Panel de pruebas</a>
   </div>
-  <p class="sub">Población de datos paso a paso. Cada paso muestra su estado actual antes de ofrecer el botón para correrlo.</p>
+  <p class="sub">Población de datos paso a paso. Cada paso muestra su estado actual antes de ofrecer el botón para correrlo. Los scripts corren dentro de este mismo panel (sin exec()/Cron Job) — si tu hosting mata requests muy largos, un paso pesado podría no alcanzar a terminar; en ese caso, la salida parcial te dice hasta dónde llegó.</p>
 
   <?php if ($mensaje): ?>
     <div class="aviso <?= $mensaje['tipo'] === 'ok' ? 'ok' : 'error' ?>">
@@ -431,29 +334,6 @@ $phpBinSugerido = $phpBinActual ?? '/usr/local/bin/php';
   </div>
 
   <div class="panel">
-    <h2>Ejecución de scripts (PHP CLI)</h2>
-    <p class="detalle">
-      <?php if (!$execOk): ?>
-        ⚠ <code>exec()</code> está deshabilitada en este hosting (confirmado: "Call to undefined function exec()"). Los botones "Ejecutar" de abajo no van a funcionar — usa Cron Job para cada paso, con los comandos ya armados que aparecen junto a cada uno.
-      <?php elseif ($phpBinActual !== null): ?>
-        ✓ Usando: <code><?= htmlspecialchars($phpBinActual) ?></code>
-        <?= $phpBinEsManual ? '(guardado a mano)' : '(detectado automáticamente)' ?>
-      <?php else: ?>
-        ⚠ <code>exec()</code> funciona, pero no se encontró un binario de PHP CLI. Corre el diagnóstico de Cron Job del README para encontrar la ruta correcta en tu hosting, y pégala abajo.
-      <?php endif; ?>
-    </p>
-    <?php if ($execOk): ?>
-      <form method="post" style="display:flex; gap:8px; margin-top:8px;">
-        <input type="hidden" name="csrf" value="<?= htmlspecialchars($csrf) ?>">
-        <input type="hidden" name="accion" value="guardar_php_bin">
-        <input type="text" name="php_bin" placeholder="ej. /usr/local/bin/php8.1 (vacío para volver a autodetectar)"
-               value="<?= htmlspecialchars($phpBinEsManual ? (string) $phpBinActual : '') ?>" style="flex:1;">
-        <button type="submit" class="secondary">Guardar</button>
-      </form>
-    <?php endif; ?>
-  </div>
-
-  <div class="panel">
     <h2>Pasos de importación</h2>
     <?php foreach ($pasos as $paso): ?>
       <div class="paso">
@@ -475,8 +355,8 @@ $phpBinSugerido = $phpBinActual ?? '/usr/local/bin/php';
           <div class="nota"><?= htmlspecialchars($paso['nota']) ?></div>
         <?php endif; ?>
 
-        <?php if ($paso['archivo_ok'] && $execOk): ?>
-          <form method="post" onsubmit="return confirm('¿Correr <?= htmlspecialchars(addslashes($paso['nombre'])) ?> ahora?');">
+        <?php if ($paso['archivo_ok']): ?>
+          <form method="post" onsubmit="return confirm('¿Correr <?= htmlspecialchars(addslashes($paso['nombre'])) ?> ahora? La página puede tardar en responder mientras corre.');">
             <input type="hidden" name="csrf" value="<?= htmlspecialchars($csrf) ?>">
             <input type="hidden" name="accion" value="correr_paso">
             <input type="hidden" name="paso" value="<?= htmlspecialchars($paso['id']) ?>">
@@ -487,9 +367,6 @@ $phpBinSugerido = $phpBinActual ?? '/usr/local/bin/php';
               <button type="submit"><?= $paso['hecho'] ? 'Volver a correr' : 'Ejecutar' ?></button>
             <?php endif; ?>
           </form>
-        <?php elseif ($paso['archivo_ok'] && !$execOk): ?>
-          <div class="detalle">Comando de Cron Job para este paso (ajusta la ruta de PHP si no es la tuya):</div>
-          <pre style="background:#0f1115; color:#d1d5db; border-radius:6px; padding:8px 10px; font-family:var(--mono); font-size:0.78rem; overflow-x:auto; margin-top:4px; user-select:all;"><?= htmlspecialchars($phpBinSugerido . ' ' . $raiz . '/' . $paso['script']) ?></pre>
         <?php endif; ?>
       </div>
     <?php endforeach; ?>

@@ -10,7 +10,8 @@ $estadoId = $_GET['estado_id'] ?? null;
 $municipioId = $_GET['municipio_id'] ?? null;
 $limit = $_GET['limit'] ?? 10;
 
-if (mb_strlen($q) < 2) {
+$longitudQ = function_exists('mb_strlen') ? mb_strlen($q) : strlen($q);
+if ($longitudQ < 2) {
     jsonResponse(false, 'El texto debe tener al menos 2 caracteres', 400);
 }
 

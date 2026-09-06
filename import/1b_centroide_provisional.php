@@ -10,11 +10,9 @@
  */
 
 require_once __DIR__ . '/../config/db.php';
+require_once __DIR__ . '/_admin_run.php';
 
-if (PHP_SAPI !== 'cli') {
-    fwrite(STDERR, "Este script solo puede ejecutarse por CLI.\n");
-    exit(1);
-}
+permitirSoloCli();
 
 $db = getDB();
 
@@ -29,7 +27,7 @@ $promedios = $db->query(
 if (empty($promedios)) {
     echo "Ninguna colonia tiene centroide todavía; no hay nada de qué promediar.\n";
     echo "Corre este script después de importar al menos parte de los polígonos INEGI (M4).\n";
-    exit(0);
+    return; // fin normal, no es un error -- funciona igual en CLI que incluido desde admin/
 }
 
 $update = $db->prepare(

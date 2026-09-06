@@ -21,19 +21,16 @@
  */
 
 require_once __DIR__ . '/../config/db.php';
+require_once __DIR__ . '/_admin_run.php';
 
-if (PHP_SAPI !== 'cli') {
-    fwrite(STDERR, "Este script solo puede ejecutarse por CLI.\n");
-    exit(1);
-}
+permitirSoloCli();
 
 $basePath = $argv[1] ?? __DIR__ . '/../Poligonos/00_integrados/conjunto_de_datos/00as';
 $shpPath = $basePath . '.shp';
 $dbfPath = $basePath . '.dbf';
 
 if (!is_file($shpPath) || !is_file($dbfPath)) {
-    fwrite(STDERR, "No se encontraron $shpPath / $dbfPath (ver M4.1).\n");
-    exit(1);
+    abortarImport("No se encontraron $shpPath / $dbfPath (ver M4.1).");
 }
 
 // --- Proyección: Lambert Conformal Conic inversa (Snyder 1987) ---
@@ -212,7 +209,7 @@ function poligonosAWkt(array $poligonos): string
 
 function normalizarNombre(string $nombre): string
 {
-    $nombre = mb_strtoupper(trim($nombre), 'UTF-8');
+    $nombre = function_exists('mb_strtoupper') ? mb_strtoupper(trim($nombre), 'UTF-8') : strtoupper(trim($nombre));
     $nombre = iconv('UTF-8', 'ASCII//TRANSLIT', $nombre) ?: $nombre;
     $nombre = preg_replace('/[^A-Z0-9 ]/', '', $nombre);
     return preg_replace('/\s+/', ' ', $nombre);

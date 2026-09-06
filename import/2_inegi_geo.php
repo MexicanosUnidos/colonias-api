@@ -27,7 +27,7 @@ if (empty($archivos)) {
 
 function normalizarNombre(string $nombre): string
 {
-    $nombre = mb_strtoupper(trim($nombre), 'UTF-8');
+    $nombre = function_exists('mb_strtoupper') ? mb_strtoupper(trim($nombre), 'UTF-8') : strtoupper(trim($nombre));
     $nombre = iconv('UTF-8', 'ASCII//TRANSLIT', $nombre) ?: $nombre;
     $nombre = preg_replace('/[^A-Z0-9 ]/', '', $nombre);
     return preg_replace('/\s+/', ' ', $nombre);
