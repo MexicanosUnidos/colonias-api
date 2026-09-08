@@ -41,13 +41,14 @@ $stmt = $db->prepare(
     JOIN colonias c ON c.id = cp.colonia_id
     JOIN municipios m ON m.id = c.municipio_id
     JOIN estados e ON e.id = m.estado_id
-    WHERE ST_Within(ST_SRID(POINT(?, ?), 0), cp.poligono)
+    WHERE ST_Within(POINT(?, ?), cp.poligono)
     LIMIT 1'
 );
 $stmt->execute([$lng, $lat]);
 $resultado = $stmt->fetch();
 
 if ($resultado) {
+    $resultado = castIds($resultado, ['id', 'municipio_id', 'estado_id']);
     $resultado['lat'] = (float) $resultado['lat'];
     $resultado['lng'] = (float) $resultado['lng'];
     $resultado['metodo'] = 'poligono';
@@ -85,6 +86,7 @@ if ($resultado) {
         jsonResponse(false, 'No se encontró ninguna colonia cerca de esas coordenadas', 404);
     }
 
+    $mejor = castIds($mejor, ['id', 'municipio_id', 'estado_id']);
     $mejor['lat'] = (float) $mejor['lat'];
     $mejor['lng'] = (float) $mejor['lng'];
     $mejor['metodo'] = 'centroide';

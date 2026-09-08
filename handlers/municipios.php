@@ -16,6 +16,6 @@ $stmt = $db->prepare(
     'SELECT id, nombre, clave_inegi FROM municipios WHERE estado_id = ? ORDER BY nombre'
 );
 $stmt->execute([$estadoId]);
-$municipios = $stmt->fetchAll();
+$municipios = castIds($stmt->fetchAll(), ['id']);
 
 jsonResponse(true, $municipios, 200, $startTime);

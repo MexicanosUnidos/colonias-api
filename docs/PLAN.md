@@ -28,7 +28,10 @@ Dado un texto parcial, devuelve colonias que coincidan con el nombre de la colon
 **B. Geolocalización**
 Dado un par de coordenadas GPS (latitud, longitud), devuelve la colonia exacta a la que pertenece ese punto, usando el polígono geográfico de cada colonia.
 
-Ambas capacidades son consumibles por cualquier proyecto mediante API key. Los proyectos actuales que lo usarán:
+**C. Distrito electoral (por Sección)**
+Dado el número de Sección electoral (dato impreso en la credencial del INE), devuelve el distrito federal y el distrito local a los que pertenece. A diferencia de A y B, esto **no requiere geocodificación ni polígonos**: es una búsqueda directa contra el catálogo oficial del INE, porque cada Sección pertenece a un único distrito (relación fija N:1). Ver sección 2.4 y milestones M8-M9.
+
+Las tres capacidades son consumibles por cualquier proyecto mediante API key. Los proyectos actuales que lo usarán:
 - **MeUnoColonia** — autocompletar colonia en el registro de colonos; detectar colonia por GPS del celular
 - **Otros proyectos futuros** — cualquier sistema que necesite datos de colonias mexicanas
 
@@ -46,28 +49,35 @@ El catálogo de colonias en México proviene de dos fuentes oficiales gratuitas 
 
 ### 2.1 SEPOMEX — Datos de texto
 - **URL de descarga:** https://www.correosdemexico.gob.mx/SSLServicios/ConsultaCP/Descarga.aspx
-- **Formato:** CSV, un archivo por estado (o todos juntos)
+- **Formato real de la descarga nacional: XML** (`CPdescarga.xml`, un `<table>` por colonia con el esquema inline al inicio del archivo) — no CSV. `import/1a_xml_a_csv.php` lo convierte al CSV que espera `import/1_sepomex.php`.
 - **Contenido:** nombre de colonia, código postal, tipo de asentamiento, municipio, estado
-- **Tamaño:** ~145,000 registros
+- **Tamaño real confirmado:** 159,201 registros (colonias), 31,875 códigos postales distintos, 32 estados, 2,478 municipios
 - **Actualización:** ocasional (cuando se crean colonias nuevas)
-- **Columnas relevantes:**
+- **Columnas relevantes — ⚠️ fácil de confundir:**
   - `d_asenta` — nombre de la colonia
   - `d_tipo_asenta` — tipo: Colonia, Fraccionamiento, Pueblo, Ejido, etc.
-  - `d_CP` — código postal (5 dígitos)
+  - `d_codigo` — **el código postal real de la colonia** (5 dígitos; ~32,000 valores distintos en el país)
+  - `d_CP` — ⚠️ **NO es el código postal de la colonia** pese al nombre — es la clave de la oficina postal, mucho más genérica (~1,200 valores en todo el país). Usarla como CP asigna el mismo código postal a cientos de colonias distintas.
   - `d_mnpio` — nombre del municipio
   - `d_estado` — nombre del estado
   - `c_estado` — clave de 2 dígitos del estado (para unir con INEGI)
   - `c_mnpio` — clave de municipio
 
-### 2.2 INEGI Marco Geoestadístico — Polígonos
-- **URL de descarga:** https://www.inegi.org.mx/app/biblioteca/ficha.html?upc=889463770944
-- **Formato:** Shapefile (.shp) o GeoJSON por estado
-- **Contenido:** polígono exacto de cada colonia (límites geográficos)
-- **Atributos relevantes:**
-  - `NOMGEO` — nombre de la colonia
-  - `CVE_MUN` — clave de municipio (para unir con SEPOMEX)
-  - `CVE_ENT` — clave de estado
-  - `geometry` — polígono en coordenadas WGS84
+### 2.2 INEGI — Polígonos de colonias (programa DCAH) — confirmado con archivos reales
+
+> ⚠️ El UPC de biblioteca usado antes en este documento (`889463770944`) ya no aparece en el sitio de INEGI. El producto correcto es un programa dedicado, no una edición genérica del Marco Geoestadístico: **DCAH — Delimitación de Colonias y otros Asentamientos Humanos**, https://www.inegi.org.mx/programas/dcah/ (edición 2025, corte cartográfico diciembre 2024).
+
+- **Estructura real del paquete descargado** (carpeta `Poligonos/` del proyecto): 32 carpetas por estado (`01_aguascalientes.zip` … `32_zacatecas.zip`) más **`00_integrado.zip`**, el archivo **nacional ya combinado** — usar este único archivo evita procesar los 32 por separado. Cada carpeta trae 3 subcarpetas: `catalogos/` (CSV/PDF descriptivos), `conjunto_de_datos/` (el Shapefile: `.shp .dbf .shx .prj .cpg .sbn .sbx`), `metadatos/` (XML/TXT).
+- **Total nacional confirmado:** 79,775 polígonos en 14,110 localidades (coincide exacto con el archivo real: `00as.dbf` tiene 79,775 registros).
+- **Atributos reales del `.dbf`** (confirmados leyendo el archivo — difieren de lo que se asumía antes, no es `NOMGEO`):
+  - `cvegeo` — clave geoestadística completa
+  - `cve_ent` (2 dígitos) / `cve_mun` (3 dígitos) — para unir con SEPOMEX igual que antes
+  - `cve_loc`, `cve_asen` — claves de localidad y de asentamiento
+  - `cp` — código postal (bonus no documentado originalmente; el propio INEGI advierte que no está validado contra Correos de México, puede venir en ceros — no usarlo como fuente principal de CP)
+  - `nom_asen` — nombre del asentamiento/colonia (la columna para emparejar por nombre)
+  - `tipo` — tipo de asentamiento (texto: COLONIA, FRACCIONAMIENTO, etc.)
+- **⚠️ Proyección — el hallazgo más importante:** el Shapefile **no viene en WGS84** (lat/lng). El `.prj` declara una **Cónica Conforme de Lambert** (México ITRF2008 LCC): meridiano central -102°, paralelos estándar 17.5°/29.5°, latitud de origen 12°N, falso este 2,500,000, elipsoide GRS80. Hay que reproyectar cada vértice a WGS84 antes de guardar — `import/2_dcah_geo.php` lo hace con una implementación propia de la fórmula inversa de Lambert (Snyder 1987), sin depender de GDAL/ogr2ogr. **Validado**: se corrió contra los 79,775 polígonos reales y los 79,775 resultaron dentro del rango geográfico de México (14°-33°N, -118°/-86°W), cero anomalías.
+- **⚠️ Cobertura incompleta por diseño — no es un defecto de la importación:** el DCAH prioriza capitales y localidades de 50,000+ habitantes; no cubre el 100% de las colonias de SEPOMEX. **Confirmado en producción real: 42,237 de 79,775 polígonos emparejados (52.9%).** (Nota: una corrida de prueba en un entorno local dio 41.5% con el mismo código y los mismos datos — la diferencia parece venir de que `iconv('UTF-8','ASCII//TRANSLIT',...)` en `normalizarNombre()` usa la tabla de transliteración del sistema, que puede variar entre distribuciones/versiones de glibc. El número de producción es el que cuenta.) Es más bajo que el ideal >75% que se documentaba antes — normal al cruzar dos catálogos independientes por nombre; candidato a mejorar después con matching más flexible (por CP, por similitud de texto) si hace falta más cobertura. Mientras tanto sigue existiendo el fallback de M3.4 (centroide aproximado) y el campo `metodo` de `/geolocate`.
 
 ### 2.3 Estrategia de unión
 SEPOMEX tiene los CP y tipos; INEGI tiene los polígonos. Se unen por:
@@ -75,6 +85,27 @@ SEPOMEX tiene los CP y tipos; INEGI tiene los polígonos. Se unen por:
 clave_estado + clave_municipio + nombre_colonia (normalizado: sin acentos, mayúsculas)
 ```
 El script de importación hace esta unión. Los que no emparejan quedan sin polígono (el campo queda NULL) y solo funcionan en búsqueda por texto, no en geolocalización exacta.
+
+### 2.4 INE — Catálogo de Secciones Electorales
+
+> **Contexto para la IA que implemente esto:** esta fuente es distinta a SEPOMEX/INEGI. La autoridad es el **INE** (Instituto Nacional Electoral), no el INEGI. No confundir los dos organismos ni sus catálogos.
+
+- **Qué es una "Sección electoral":** la unidad territorial más pequeña del sistema electoral mexicano. Es un número de 4 dígitos (ej. `0001`) impreso en el frente de la credencial para votar (INE). **Cada sección pertenece a un único distrito federal y a un único distrito local** — no hay traslape. Por eso, a diferencia de la geolocalización por GPS (sección 2.2/M5), aquí **no se necesita punto-en-polígono ni geocodificar direcciones**: es un `SELECT` directo.
+- **URL de descarga confirmada:** https://cartografia.ine.mx/sige8/ → sección "Marco Geográfico Electoral". Ahí hay 3 productos descargables; **el que sirve es "Base Geográfica Digital (BGD)"**:
+  - ~~Mapas Digitales~~ — son PDF de mapas (visual), no sirve.
+  - ~~Plano de Sección Individual (PSI)~~ — un PDF por cada sección (73,268 archivos), no sirve como catálogo.
+  - **Base Geográfica Digital (BGD)** ✓ — trae el Marco Geográfico Seccional en Shapefile y catálogos en **MDB, XLS y TXT**. Preferir el catálogo XLS/TXT (evitar MDB salvo tener Access/mdbtools) — es la vía más rápida a un CSV.
+  - La descarga es por estado (32 paquetes), igual que el Marco Geográfico de INEGI en M4.
+  - Totales nacionales confirmados en la propia página (referencia para verificar la importación completa): 300 distritos federales, 679 distritos locales, 2,477 municipios, **73,268 secciones electorales**.
+- **Formato:** CSV/XLS/TXT (convertir XLS a CSV si es necesario), normalmente un archivo por entidad.
+- **Contenido esperado (columnas típicas, verificar contra el archivo real antes de programar el import):**
+  - `seccion` — número de sección (4 dígitos, con ceros a la izquierda, ej. `"0001"`)
+  - `entidad` / `clave_entidad` — clave de 2 dígitos del estado (para unir con la tabla `estados` ya existente)
+  - `distrito_federal` — número del distrito federal (1-N, N varía por estado)
+  - `distrito_local` — número del distrito local (puede no existir para todas las entidades)
+  - `municipio` / `clave_municipio` — para unir con la tabla `municipios` ya existente
+  - `cabecera_distrital` — nombre del municipio/ciudad sede del distrito (opcional, solo informativo)
+- **Advertencia importante:** el número de Sección **se repite entre estados** (ej. puede haber una sección "0001" en Jalisco y otra "0001" en Sonora). Por eso la llave para buscar siempre debe ser **sección + estado**, nunca sección sola. El usuario final normalmente ya sabe su estado (por dirección o porque lo captura en el mismo formulario).
 
 ---
 
@@ -117,11 +148,26 @@ colonias (~145,000 filas)     clave_inegi
   tipo                        colonia_id → colonias.id  [PK]
   centroide  POINT            poligono   GEOMETRY NOT NULL
   creado_en                   SPATIAL INDEX sp_poligono
+
+distritos_federales            distritos_locales
+  id                            id
+  estado_id → estados.id        estado_id → estados.id
+  numero                        numero
+  cabecera (opcional)           cabecera (opcional)
+
+secciones_electorales (~68,000 filas, catálogo INE)
+  seccion CHAR(4)
+  estado_id → estados.id
+  distrito_federal_id → distritos_federales.id
+  distrito_local_id → distritos_locales.id  [NULL permitido]
+  municipio_id → municipios.id  [NULL permitido]
+  PK compuesta (seccion, estado_id)  ← la sección se repite entre estados
 ```
 
 **Por qué dos tablas para colonias y polígonos:**
-- `SPATIAL INDEX` en MySQL requiere columna `NOT NULL`
-- Los polígonos se importan en una segunda fase (primero SEPOMEX, luego INEGI)
+- Los polígonos se importan en una segunda fase (primero SEPOMEX, luego INEGI); mientras tanto `colonias.centroide` queda `NULL`
+- `colonia_poligonos.poligono` sí es `NOT NULL` y sí tiene `SPATIAL INDEX` (`sp_poligono`) — todo `ST_Within()` de `/geolocate` pasa por ahí
+- `colonias.centroide` **no** lleva índice espacial: el fallback Haversine de `/geolocate` filtra con `ST_X()/ST_Y() BETWEEN`, que un índice espacial no acelera, y un `SPATIAL INDEX` exige que la columna sea `NOT NULL` — incompatible con dejarla vacía entre M3 y M4. Un `KEY` normal ahí tampoco ayudaría a ese filtro, así que se dejó sin índice (colonias es candidata a bounding box, no hay tantas filas por consulta como para notarlo)
 - Las consultas de texto no necesitan cargar los polígonos (más rápido)
 - Permite que el sistema funcione parcialmente desde el día 1
 
@@ -130,7 +176,6 @@ colonias (~145,000 filas)     clave_inegi
 | Tabla | Índice | Tipo | Para qué sirve |
 |-------|--------|------|----------------|
 | `colonias` | `ft_nombre` | FULLTEXT | Búsqueda por texto libre |
-| `colonias` | `sp_centroide` | SPATIAL (R-Tree) | Búsqueda colonias cercanas |
 | `colonias` | `idx_cp` | B-Tree | Búsqueda por código postal |
 | `colonias` | `idx_municipio` | B-Tree | Filtrar por municipio |
 | `colonia_poligonos` | `sp_poligono` | SPATIAL (R-Tree) | `ST_Within()` para GPS |
@@ -154,6 +199,8 @@ cache/
 ### 3.5 Coordenadas — Convención importante
 
 El proyecto usa **SRID 0** (Cartesiano) en lugar de SRID 4326 (WGS84 estándar) para evitar problemas de orden de ejes en MySQL 8 (que invierte lat/lng en SRID 4326). A escala de México la diferencia es < 0.01%.
+
+> ⚠️ **Cómo se logra SRID 0 en la práctica:** simplemente **no especificando ningún SRID** al crear geometrías (`POINT(x,y)`, `ST_GeomFromText(wkt)`, `ST_GeomFromGeoJSON(json)` sin segundo argumento ya devuelven SRID 0 por default). El código *no* usa `ST_SRID(geom, 0)` para forzarlo explícitamente — esa función de 2 argumentos (la que *asigna* un SRID) es exclusiva de MySQL 8.0.3+; el hosting de producción real corre una versión más vieja / MariaDB que no la reconoce, y causaba un HTTP 500 en `/geolocate` y fallas silenciosas en los imports. Ver commit de este fix para el historial completo.
 
 **Convención de almacenamiento:**
 ```
@@ -370,6 +417,53 @@ Detalle completo de una colonia por ID.
 
 ---
 
+### `GET /distrito`
+
+Dado el número de Sección electoral (dato impreso en la credencial del INE) y el estado, devuelve el distrito federal y el distrito local a los que pertenece. Es una búsqueda directa contra el catálogo del INE — **no** calcula nada geográfico ni necesita coordenadas (ver sección 2.4).
+
+**Parámetros:**
+
+| Parámetro | Tipo | Requerido | Descripción |
+|-----------|------|-----------|-------------|
+| `seccion` | string | ✓ | Número de sección, 4 dígitos (ej. `0001`). Acepta con o sin ceros a la izquierda. |
+| `estado_id` | int | ✓ | ID del estado (el mismo `id` que devuelve `/estados`). Obligatorio porque el número de sección se repite entre estados. |
+
+**Ejemplo:** `GET /distrito?seccion=0001&estado_id=9`
+```json
+{
+  "ok": true,
+  "data": {
+    "seccion": "0001",
+    "estado_id": 9,
+    "estado": "Ciudad de México",
+    "distrito_federal": 3,
+    "distrito_federal_cabecera": "Miguel Hidalgo",
+    "distrito_local": 15,
+    "distrito_local_cabecera": "Miguel Hidalgo",
+    "municipio": "Miguel Hidalgo",
+    "municipio_id": 214
+  },
+  "tiempo_ms": 3
+}
+```
+
+**Ejemplo de error (sección inexistente):**
+```json
+{ "ok": false, "error": "Sección electoral no encontrada para ese estado", "codigo": 404 }
+```
+
+**Cómo llamarlo desde un formulario típico:**
+1. El usuario captura o selecciona su estado (usar `/estados`, ya existente).
+2. El usuario captura el número de Sección que aparece en su credencial del INE (campo de texto libre, 4 dígitos).
+3. El frontend llama `GET /distrito?seccion={valor}&estado_id={id}` con la misma API key que ya usa para los demás endpoints.
+4. Se muestra `distrito_federal` y/o `distrito_local` según lo que el proyecto consumidor necesite.
+
+```bash
+curl -H "Authorization: Bearer $KEY" "https://tu-dominio.com/distrito?seccion=0001&estado_id=9"
+```
+
+---
+
 ### `POST /keys/crear` *(solo uso interno — IP whitelist)*
 
 Crea una nueva API key para un proyecto.
@@ -450,28 +544,32 @@ La `api_key` se muestra una sola vez — el sistema guarda solo el hash.
 ---
 
 ### M3 — Importación SEPOMEX (datos de texto)
-*Objetivo: Las 145,000 colonias en la BD con nombre, CP, municipio, estado.*
+*Objetivo: Las colonias en la BD con nombre, CP, municipio, estado.*
 
 | # | Tarea | Tamaño | Entregable |
 |---|-------|--------|-----------|
-| M3.1 | Descargar CSV de SEPOMEX (manual, el usuario lo hace) y colocarlo en `import/data/sepomex.csv` | — | Archivo CSV en carpeta |
+| M3.0 | Descargar el XML nacional de SEPOMEX (`CPdescarga.xml`, manual, el usuario lo hace) y colocarlo en cualquier ruta (ej. `Codigos Postales/CPdescarga.xml`) | — | Archivo XML disponible |
+| M3.0b | `import/1a_xml_a_csv.php` — convertir el XML a `import/data/sepomex.csv`. **Usa `d_codigo` para el CP, no `d_CP`** (ver advertencia en sección 2.1) | 🟡 | CSV generado, confirmado con 159,201 filas / 31,875 CPs distintos / 32 estados |
+| M3.1 | *(alternativa a M3.0/M3.0b)* Si en vez del XML se consigue un CSV ya armado de SEPOMEX, colocarlo directo en `import/data/sepomex.csv` | — | Archivo CSV en carpeta |
 | M3.2 | `import/1_sepomex.php` — leer CSV, insertar/actualizar municipios (deduplicar por clave_inegi), insertar colonias con centroide vacío temporal | 🔴 | Script CLI que corre sin errores en ~5 min |
-| M3.3 | Verificar conteos post-importación: `SELECT COUNT(*) FROM colonias` ≈ 145,000 | 🟢 | Query de verificación |
-| M3.4 | Calcular centroide promedio por colonia a partir de sus vecinos del mismo CP (estimación provisional hasta tener INEGI) | 🟡 | Campo centroide con valor aproximado |
+| M3.3 | Verificar conteos post-importación: `SELECT COUNT(*) FROM colonias` ≈ 159,000 | 🟢 | Query de verificación |
+| M3.4 | Calcular centroide promedio por colonia a partir de sus vecinos del mismo CP (estimación provisional hasta tener INEGI/DCAH) | 🟡 | Campo centroide con valor aproximado |
 | ✅ M3.V | Verificar: /buscar?q=roma → colonias de CDMX y otras ciudades; /buscar?q=06600 → colonias de Juárez CDMX | ✅ | |
 
 ---
 
-### M4 — Importación INEGI (polígonos geográficos)
+### M4 — Importación INEGI/DCAH (polígonos geográficos)
 *Objetivo: Cada colonia con su polígono exacto en colonia_poligonos.*
+
+> Actualizado tras confirmar el archivo real (ver 2.2): el producto es DCAH, no GeoJSON genérico, y viene en una proyección que hay que convertir a mano. `import/2_dcah_geo.php` ya reemplaza el plan original de `2_inegi_geo.php` (ese script se deja en el repo por si algún día se usa un GeoJSON real, pero no es el camino recomendado).
 
 | # | Tarea | Tamaño | Entregable |
 |---|-------|--------|-----------|
-| M4.1 | Descargar Marco Geoestadístico INEGI (manual) — estado por estado en GeoJSON | — | Archivos GeoJSON en `import/data/inegi/` |
-| M4.2 | `import/2_inegi_geo.php` — leer cada GeoJSON, normalizar nombre (sin acentos, mayúsculas), buscar colonia en BD por nombre+clave_municipio, insertar en `colonia_poligonos` + actualizar `centroide` real | 🔴 | Script CLI, registra colonias sin match en `import/logs/sin_match.txt` |
-| M4.3 | Revisar `sin_match.txt` — las colonias sin match quedan sin polígono; documentar el porcentaje | 🟢 | Porcentaje de cobertura de polígonos conocido |
+| M4.1 | Descargar el paquete DCAH del INEGI (manual, ver 2.2) y colocarlo en `Poligonos/` — usar `00_integrado.zip` (nacional, ya combinado) | — | `Poligonos/00_integrados/conjunto_de_datos/00as.shp` + `.dbf` disponibles |
+| M4.2 | `import/2_dcah_geo.php` — parser de Shapefile propio (sin GDAL) + reproyección Lambert Conformal Conic → WGS84 (validado contra los 79,775 polígonos reales, 0 fuera de México) + emparejamiento por `nom_asen` normalizado + `cve_ent`+`cve_mun`, inserta en `colonia_poligonos` y actualiza `centroide` | 🔴 | Script CLI, registra sin match en `import/logs/dcah_sin_match.txt` |
+| M4.3 | Revisar `dcah_sin_match.txt` — cobertura real medida en producción: **52.9%** (42,237 de 79,775). Es esperado (cobertura DCAH incompleta + diferencias de nomenclatura entre catálogos), no es un bug | 🟢 | Porcentaje de cobertura documentado |
 | M4.4 | Agregar SPATIAL INDEX en `colonia_poligonos.poligono` (ya está en schema, verificar que se creó) | 🟢 | `SHOW INDEX FROM colonia_poligonos` muestra el índice |
-| ✅ M4.V | `SELECT COUNT(*) FROM colonia_poligonos` — debería ser > 80% de colonias | ✅ | |
+| ✅ M4.V | `SELECT COUNT(*) FROM colonia_poligonos` — con el ~53% de match esperado, revisar que la cifra ronde las ~42,000 filas, no que sea 0 o el 100% de las colonias | ✅ | |
 
 ---
 
@@ -511,6 +609,49 @@ La `api_key` se muestra una sola vez — el sistema guarda solo el hash.
 | M7.3 | Rate limiting básico: máximo 100 requests/minuto por API key, usando tabla `api_rate_log` en MySQL | 🟡 | 429 Too Many Requests si se excede |
 | M7.4 | Endpoint `GET /health` público (sin auth) que devuelve: status ok/error, conteo de colonias, latencia de BD | 🟢 | Monitoreo básico |
 | ✅ M7.V | Checklist completo de usuario (ver Sección 7) | ✅ | |
+
+---
+
+### M8 — Importación de catálogo de Secciones Electorales (INE)
+*Objetivo: tener en la BD el catálogo completo de secciones electorales, cada una vinculada a su distrito federal y distrito local.*
+
+> **Contexto general para toda esta milestone:** el INE publica un catálogo (no un mapa) que dice, para cada número de Sección, a qué distrito federal y distrito local pertenece. Es un archivo de texto (CSV/Excel), no un GeoJSON — no hay geometría involucrada aquí. Ver sección 2.4 para el detalle de columnas. Cada tarea de abajo es intencionalmente pequeña: hacer una cosa, verificarla, seguir con la siguiente.
+
+| # | Tarea | Tamaño | Entregable |
+|---|-------|--------|-----------|
+| M8.1 | Descargar en https://cartografia.ine.mx/sige8/ el producto **"Base Geográfica Digital (BGD)"** (no "Mapas Digitales" ni "Plano de Sección Individual") de los 32 estados, extraer el catálogo XLS/TXT de cada uno, convertir a CSV y concatenar en `import/data/ine_secciones.csv` (manual, lo hace el usuario) | — | Archivo CSV único con las 32 entidades en la carpeta |
+| M8.2 | Abrir el CSV y anotar en un comentario al inicio de `import/5_ine_secciones.php` cuáles son los nombres reales de las columnas (pueden no llamarse igual que en la sección 2.4 — ej. podría ser `ENTIDAD` en mayúsculas) | 🟢 | Comentario con el mapeo columna real → campo interno |
+| M8.3 | Agregar a `schema.sql` la tabla `distritos_federales`: columnas `id`, `estado_id` (FK a `estados.id`), `numero` (TINYINT), `cabecera` (VARCHAR NULL), índice único en (`estado_id`, `numero`) | 🟢 | Tabla nueva en schema.sql, sin tocar las tablas existentes |
+| M8.4 | Agregar a `schema.sql` la tabla `distritos_locales`: mismas columnas que M8.3 pero para distrito local | 🟢 | Tabla nueva en schema.sql |
+| M8.5 | Agregar a `schema.sql` la tabla `secciones_electorales` con PK compuesta (`seccion`, `estado_id`) y FKs a `estados`, `distritos_federales`, `distritos_locales`, `municipios` (ver diagrama en sección 3.2) | 🟡 | Tabla nueva en schema.sql |
+| M8.6 | Ejecutar `schema.sql` actualizado en la BD de desarrollo (`mysql -u user -p colonias_mx < schema.sql`) y confirmar con `SHOW TABLES;` que las 3 tablas nuevas existen | 🟢 | 3 tablas visibles en la BD |
+| M8.7 | `import/5_ine_secciones.php` — parte 1: leer el CSV completo a memoria (o por líneas), y solo con un `echo` imprimir cuántas filas tiene y las primeras 3 filas crudas, sin insertar nada todavía | 🟢 | Al correr el script en consola se ve el conteo de filas y un ejemplo |
+| M8.8 | `import/5_ine_secciones.php` — parte 2: por cada fila, extraer la clave de estado y buscar el `id` correspondiente en la tabla `estados` ya existente (JOIN por `clave`). Si no encuentra el estado, escribir la fila en `import/logs/secciones_sin_estado.txt` y seguir con la siguiente | 🟡 | Script no se detiene ante filas problemáticas, deja rastro en el log |
+| M8.9 | `import/5_ine_secciones.php` — parte 3: recolectar los pares únicos (estado_id, número de distrito federal) de todas las filas e insertarlos en `distritos_federales` con `INSERT IGNORE` (evita duplicados gracias al índice único de M8.3) | 🟡 | `SELECT COUNT(*) FROM distritos_federales` da un número razonable (decenas por estado) |
+| M8.10 | `import/5_ine_secciones.php` — parte 4: igual que M8.9 pero para `distritos_locales` | 🟡 | `SELECT COUNT(*) FROM distritos_locales` da un número razonable |
+| M8.11 | `import/5_ine_secciones.php` — parte 5: por cada fila del catálogo, resolver `distrito_federal_id` y `distrito_local_id` (buscando en las tablas ya llenadas por M8.9/M8.10) y hacer `INSERT` en `secciones_electorales`. Usar inserción en lotes (ej. 500 filas por `INSERT`) para que no tarde horas | 🔴 | Script corre completo sin errores en unos minutos |
+| M8.12 | `import/5b_verificar_secciones.php` — script de verificación: cuenta total de secciones importadas, cuenta de secciones sin `distrito_local_id` (puede ser normal en algunas entidades), cuenta de distritos sin ninguna sección asociada | 🟢 | Reporte impreso en consola, análogo a `import/1c_verificar_conteos.php` |
+| ✅ M8.V | Verificar manualmente 5 secciones de al menos 3 estados distintos contra el "Ubicador de Módulos"/consulta oficial del INE (buscar en https://www.ine.mx) y confirmar que el distrito coincide | ✅ | Checklist completado, sin discrepancias |
+
+---
+
+### M9 — Endpoint de Distrito Electoral
+*Objetivo: `GET /distrito?seccion=&estado_id=` funcionando, documentado y protegido igual que los demás endpoints.*
+
+> **Contexto:** este endpoint es el más sencillo de todo el API porque es un `SELECT` con JOINs fijos, sin cálculo geográfico ni texto libre. Usar como plantilla `handlers/municipios.php` (también recibe un solo filtro y hace un JOIN simple).
+
+| # | Tarea | Tamaño | Entregable |
+|---|-------|--------|-----------|
+| M9.1 | Crear `handlers/distrito.php` con el esqueleto mínimo: leer `$_GET['seccion']` y `$_GET['estado_id']`, si falta alguno responder error 400 con `jsonResponse()` (igual patrón que `handlers/municipios.php`) | 🟢 | Endpoint responde error claro si faltan parámetros |
+| M9.2 | Normalizar el parámetro `seccion`: rellenar con ceros a la izquierda hasta 4 dígitos (ej. `"1"` → `"0001"`) usando `str_pad()` | 🟢 | `?seccion=1` y `?seccion=0001` dan el mismo resultado |
+| M9.3 | Escribir el `SELECT` con JOIN de `secciones_electorales` a `distritos_federales`, `distritos_locales`, `municipios`, `estados`, filtrando por `seccion` + `estado_id` (ver PK compuesta de M8.5) | 🟡 | Query devuelve una sola fila para una sección válida |
+| M9.4 | Si el `SELECT` no devuelve filas, responder `{"ok":false,"error":"Sección electoral no encontrada para ese estado","codigo":404}` | 🟢 | Caso de sección inexistente probado con curl |
+| M9.5 | Armar el JSON de respuesta exitosa con el formato exacto mostrado en la sección 4 (`GET /distrito`) de este documento | 🟢 | Respuesta igual al ejemplo documentado |
+| M9.6 | Registrar la ruta `GET /distrito` en `index.php`, apuntando a `handlers/distrito.php` (copiar el mismo patrón usado para `/municipios`) | 🟢 | `curl .../distrito?...` ya no da 404 de ruta |
+| M9.7 | Aplicar el middleware existente `middleware/auth.php` y `middleware/rate_limit.php` a esta ruta, igual que a las demás (revisar cómo lo hace `index.php` para `/municipios`) | 🟢 | Sin API key → 401; con key válida → 200 |
+| M9.8 | Aplicar caché de archivo (`helpers/cache.php`) a esta ruta con TTL largo (ej. 30 días — el catálogo solo cambia si el INE redistritó) | 🟢 | Segunda llamada idéntica se sirve desde `cache/responses/` |
+| M9.9 | Agregar la documentación de `/distrito` a `README.md`, con el mismo formato que los demás endpoints (ya está redactada en la sección 4 de este PLAN — solo copiarla/adaptarla) | 🟢 | README actualizado |
+| ✅ M9.V | Probar con secciones reales de al menos 3 estados distintos y comparar contra el resultado oficial del INE; probar sección inexistente; probar sin API key | ✅ | Checklist completado |
 
 ---
 
@@ -640,6 +781,58 @@ curl -s -H "Authorization: Bearer $KEY" "$BASE/geolocate?lat=40.7128&lng=-74.006
 # Si dice "centroide" = aproximado con Haversine
 ```
 
+### M8 — Verificación de importación de Secciones Electorales
+
+```bash
+# Conteos generales
+mysql -u user -p -e "
+    SELECT
+        (SELECT COUNT(*) FROM colonias_mx.secciones_electorales) AS secciones,
+        (SELECT COUNT(*) FROM colonias_mx.distritos_federales) AS distritos_federales,
+        (SELECT COUNT(*) FROM colonias_mx.distritos_locales) AS distritos_locales;
+"
+# Esperado: secciones ~68,000 (cifra referencial, verificar contra el catálogo real),
+# distritos_federales = 300, distritos_locales según cada entidad
+
+# Verificar que no hay secciones sin distrito federal (ese campo nunca debería ser NULL)
+mysql -u user -p -e "
+    SELECT COUNT(*) FROM colonias_mx.secciones_electorales
+    WHERE distrito_federal_id IS NULL;
+"
+# Esperado: 0
+
+# Revisar el log de filas que no emparejaron con ningún estado
+cat import/logs/secciones_sin_estado.txt
+# Esperado: archivo vacío o con muy pocas líneas
+```
+
+### M9 — Verificación del endpoint /distrito
+
+```bash
+KEY="tu_api_key"
+BASE="https://tu-dominio.com/colonias-api"
+
+# Sección válida
+curl -s -H "Authorization: Bearer $KEY" "$BASE/distrito?seccion=0001&estado_id=9"
+# Esperado: JSON con distrito_federal y distrito_local
+
+# Sección sin ceros a la izquierda (debe normalizar igual)
+curl -s -H "Authorization: Bearer $KEY" "$BASE/distrito?seccion=1&estado_id=9"
+# Esperado: mismo resultado que el caso anterior
+
+# Sección inexistente
+curl -s -H "Authorization: Bearer $KEY" "$BASE/distrito?seccion=9999&estado_id=9"
+# Esperado: {"ok":false,"error":"Sección electoral no encontrada para ese estado","codigo":404}
+
+# Falta estado_id
+curl -s -H "Authorization: Bearer $KEY" "$BASE/distrito?seccion=0001"
+# Esperado: error 400 pidiendo el parámetro faltante
+
+# Sin API key
+curl -s "$BASE/distrito?seccion=0001&estado_id=9"
+# Esperado: 401
+```
+
 ---
 
 ## 7. Verificación funcional — Checklist para el usuario
@@ -704,6 +897,17 @@ Abrir: `https://tu-dominio.com/colonias-api/estados?api_key=TU_KEY`
 - [ ] Sin internet: aparece mensaje claro (no pantalla en blanco)
 - [ ] GPS no disponible en el dispositivo: aparece alternativa para escribir manualmente
 - [ ] Colonia no encontrada: mensaje "No encontramos esa colonia, intenta con otro término"
+
+### 7.8 Distrito electoral — probar en navegador o Postman
+
+Abrir: `https://tu-dominio.com/colonias-api/distrito?api_key=TU_KEY&seccion=0001&estado_id=9`
+
+**¿Qué verificar?**
+- [ ] Aparece un distrito federal (número) y, si la entidad lo tiene, un distrito local
+- [ ] El número de distrito coincide con el que muestra el sitio oficial del INE para esa misma sección
+- [ ] Si escribo una sección que no existe, aparece un mensaje claro (no un error del servidor)
+- [ ] Si no indico `estado_id`, aparece un mensaje pidiendo ese dato (no un resultado de otro estado)
+- [ ] Repetir la prueba con una sección de otro estado distinto a CDMX, para confirmar que la búsqueda respeta el estado indicado
 
 ---
 

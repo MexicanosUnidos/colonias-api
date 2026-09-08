@@ -8,21 +8,20 @@
  */
 
 require_once __DIR__ . '/../config/db.php';
+require_once __DIR__ . '/_admin_run.php';
 
-if (PHP_SAPI !== 'cli') {
-    fwrite(STDERR, "Este script solo puede ejecutarse por CLI.\n");
-    exit(1);
-}
+permitirSoloCli();
 
 $csvPath = __DIR__ . '/data/sepomex.csv';
 if (!is_file($csvPath)) {
-    fwrite(STDERR, "No se encontró $csvPath. Descarga el CSV de SEPOMEX primero (ver M3.1).\n");
-    exit(1);
+    abortarImport("No se encontró $csvPath. Descarga el CSV de SEPOMEX primero (ver M3.1).");
 }
 
-function normalizarClave(string $estado, string $municipio): string
-{
-    return str_pad($estado, 2, '0', STR_PAD_LEFT) . str_pad($municipio, 3, '0', STR_PAD_LEFT);
+if (!function_exists('normalizarClave')) {
+    function normalizarClave(string $estado, string $municipio): string
+    {
+        return str_pad($estado, 2, '0', STR_PAD_LEFT) . str_pad($municipio, 3, '0', STR_PAD_LEFT);
+    }
 }
 
 $db = getDB();
@@ -35,8 +34,7 @@ foreach ($stmt->fetchAll() as $row) {
 
 $handle = fopen($csvPath, 'r');
 if ($handle === false) {
-    fwrite(STDERR, "No se pudo abrir $csvPath\n");
-    exit(1);
+    abortarImport("No se pudo abrir $csvPath");
 }
 
 // Detectar delimitador y encabezado
@@ -48,12 +46,22 @@ $encabezado = fgetcsv($handle, 0, $delimitador);
 $encabezado = array_map(fn ($h) => trim((string) $h), $encabezado);
 $col = array_flip($encabezado);
 
-$requeridas = ['d_asenta', 'd_tipo_asenta', 'd_CP', 'd_mnpio', 'd_estado', 'c_estado', 'c_mnpio'];
+$requeridas = ['d_asenta', 'd_tipo_asenta', 'd_mnpio', 'd_estado', 'c_estado', 'c_mnpio'];
 foreach ($requeridas as $r) {
     if (!isset($col[$r])) {
-        fwrite(STDERR, "Columna requerida '$r' no encontrada en el CSV.\n");
-        exit(1);
+        abortarImport("Columna requerida '$r' no encontrada en el CSV.");
     }
+}
+
+// El código postal real de cada colonia viene en "d_codigo" en el XML
+// nacional de SEPOMEX (CPdescarga.xml). La columna "d_CP" NO es el CP
+// de la colonia — es la clave de la oficina postal, mucho más genérica
+// (~1,200 valores en todo el país, contra ~32,000 de d_codigo). Se
+// prefiere d_codigo; d_CP queda solo como respaldo por si algún día se
+// usa un CSV distinto que sí lo use correctamente.
+$colCP = $col['d_codigo'] ?? $col['d_CP'] ?? null;
+if ($colCP === null) {
+    abortarImport("No se encontró columna de código postal ('d_codigo' o 'd_CP') en el CSV.");
 }
 
 $municipioCache = []; // clave_inegi => municipio_id
@@ -80,7 +88,7 @@ while (($fila = fgetcsv($handle, 0, $delimitador)) !== false) {
     $nombreMunicipio = trim($fila[$col['d_mnpio']]);
     $nombreColonia = trim($fila[$col['d_asenta']]);
     $tipo = trim($fila[$col['d_tipo_asenta']]);
-    $cp = str_pad(trim($fila[$col['d_CP']]), 5, '0', STR_PAD_LEFT);
+    $cp = str_pad(trim($fila[$colCP]), 5, '0', STR_PAD_LEFT);
 
     if (!isset($estadosPorClave[$claveEstado])) {
         $sinEstado++;

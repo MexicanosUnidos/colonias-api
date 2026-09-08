@@ -44,6 +44,31 @@ function getDB(): PDO
 }
 
 /**
+ * Convierte a int los campos indicados de una fila (o una lista de filas)
+ * devuelta por PDO. Necesario porque el driver PDO_MYSQL de algunos
+ * hostings (los que no usan mysqlnd) devuelve todas las columnas como
+ * string sin importar su tipo real en la BD, incluso con sentencias
+ * nativas (ATTR_EMULATE_PREPARES => false) — los *_id salían como "9"
+ * en vez de 9 en el JSON.
+ */
+function castIds(array $filas, array $campos): array
+{
+    $esUnaSola = array_is_list($filas) === false;
+    $lista = $esUnaSola ? [$filas] : $filas;
+
+    foreach ($lista as &$fila) {
+        foreach ($campos as $campo) {
+            if (isset($fila[$campo])) {
+                $fila[$campo] = (int) $fila[$campo];
+            }
+        }
+    }
+    unset($fila);
+
+    return $esUnaSola ? $lista[0] : $lista;
+}
+
+/**
  * Envía una respuesta JSON estándar y termina la ejecución.
  */
 function jsonResponse(bool $ok, $dataOrError, int $codigo = 200, ?float $startTime = null): void
@@ -66,6 +91,19 @@ function jsonResponse(bool $ok, $dataOrError, int $codigo = 200, ?float $startTi
         $payload['codigo'] = $codigo;
     }
 
-    echo json_encode($payload, JSON_UNESCAPED_UNICODE);
+    $json = json_encode($payload, JSON_UNESCAPED_UNICODE);
+    if ($json === false) {
+        // json_encode() puede fallar en silencio (ej. texto que no es UTF-8
+        // válido) y dejar el body vacío con HTTP 200 -- eso es peor que un
+        // error visible: parece éxito pero no trae nada. Nunca dejarlo así.
+        http_response_code(500);
+        $json = json_encode([
+            'ok' => false,
+            'error' => 'Error interno al generar la respuesta JSON: ' . json_last_error_msg(),
+            'codigo' => 500,
+        ]);
+    }
+
+    echo $json;
     exit;
 }

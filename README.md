@@ -7,6 +7,8 @@ API REST/JSON que expone el catálogo completo de colonias de México, con dos c
 
 Ver [`docs/PLAN.md`](docs/PLAN.md) para el plan completo de desarrollo, arquitectura y milestones.
 
+**¿Vas a consumir esta API desde otro sitio?** Este README es para quien instala/administra el servicio. Manda a tu equipo de desarrollo a [`docs/INTEGRACION.md`](docs/INTEGRACION.md) — es el manual pensado para eso: autenticación, cada endpoint con ejemplos de request/respuesta, códigos de error y snippets de integración en JS/PHP.
+
 ## Instalación
 
 1. Clonar el repo en el servidor (PHP 8.x + MySQL 8.x).
@@ -38,6 +40,10 @@ php import/1b_centroide_provisional.php
 
 # 3. Verificación de salud general
 php import/3_verificar.php
+
+# 4. Secciones electorales (INE) — coloca el catálogo en import/data/ine_secciones.csv
+php import/5_ine_secciones.php
+php import/5b_verificar_secciones.php
 ```
 
 ## Autenticación
@@ -97,6 +103,16 @@ Colonia exacta a partir de coordenadas GPS. El campo `metodo` indica si el resul
 curl -H "Authorization: Bearer $KEY" "https://tu-dominio.com/geolocate?lat=19.43261&lng=-99.13321"
 ```
 
+### `GET /distrito?seccion=&estado_id=`
+
+Distrito federal y local de una sección electoral (dato impreso en la credencial del INE). Es una búsqueda directa en el catálogo del INE, sin geocodificación.
+
+```bash
+curl -H "Authorization: Bearer $KEY" "https://tu-dominio.com/distrito?seccion=0001&estado_id=9"
+```
+
+Requiere haber importado el catálogo del INE (ver sección "Importación de datos" y `docs/PLAN.md` milestone M8).
+
 ### `GET /health`
 
 Estado del servicio, sin autenticación.
@@ -126,6 +142,24 @@ curl -X POST https://tu-dominio.com/keys/crear \
 ```json
 { "ok": false, "error": "Descripción del error", "codigo": 401 }
 ```
+
+## Herramientas internas (protegidas por clave de administrador)
+
+`test.php` y `admin/` **no son parte del API pública** — piden la `ADMIN_SECRET` de `config/env.php` antes de mostrar nada (formulario de login, sesión de PHP). No necesitan una API key de proyecto para acceder al panel en sí, solo para las llamadas que el panel de pruebas hace al API.
+
+### Panel de pruebas — `test.php`
+
+Formularios para probar cada endpoint a mano y un botón "Probar todo" que corre un smoke test. Ábrelo en `https://tu-dominio.com/test.php`, entra con la clave de administrador, configura la Base URL y una API key real (se guardan en el navegador) y prueba.
+
+### Panel de administración — `admin/`
+
+Para poblar la base de datos sin necesitar SSH ni Cron Jobs: `https://tu-dominio.com/admin/`. Muestra los conteos actuales de cada tabla, y por cada paso de importación (SEPOMEX, centroide provisional, INEGI/DCAH, secciones INE) indica si ya se corrió, si falta el archivo fuente, y ofrece un botón para ejecutarlo ahí mismo. El paso de SEPOMEX no es idempotente — si ya se corrió, pide marcar "forzar" a propósito antes de dejarlo repetirse, para no duplicar colonias por accidente. También incluye un formulario para crear API keys sin usar `curl`.
+
+**Cómo corre cada paso:** el script de `import/` se incluye (`include`) dentro del mismo proceso PHP del panel — no usa `exec()`/`shell_exec()` ni depende de que el hosting tenga Cron Jobs disponibles (encontramos en producción real un hosting con `exec()` totalmente deshabilitado y sin Cron Jobs en el plan; este enfoque funciona ahí igual). El precio es que el import comparte el límite de tiempo del propio request web: el panel intenta subirlo (`set_time_limit(0)`) pero algunos hostings imponen un tope duro a nivel de servidor que PHP no puede cambiar. Los pasos más pesados (SEPOMEX ~13s, INEGI/DCAH ~45s en una prueba real con datos completos) deberían entrar sin problema en la mayoría de hostings compartidos; si tu hosting corta requests muy agresivamente y un paso se queda a medias, la salida parcial te dice hasta dónde llegó — los pasos con `ON DUPLICATE KEY UPDATE` (todos menos SEPOMEX) son seguros de volver a intentar.
+
+Si tu plan sí incluye Cron Jobs y prefieres correr los scripts como procesos aparte de todos modos, se puede: `php import/1_sepomex.php` (y los demás, en el mismo orden que muestra el panel) funcionan igual por CLI normal, sin cambios.
+
+⚠️ Ambas páginas son accesibles por cualquiera que conozca la URL — la clave de administrador es lo único que las protege. No compartas esa clave, y considera borrar `test.php`/`admin/` del servidor una vez que termines de poblar los datos, si el sitio va a quedar público permanentemente.
 
 ## Caché
 

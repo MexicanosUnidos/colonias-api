@@ -11,7 +11,7 @@ if ($cached !== null) {
 
 $db = getDB();
 $stmt = $db->query('SELECT id, clave, nombre FROM estados ORDER BY nombre');
-$estados = $stmt->fetchAll();
+$estados = castIds($stmt->fetchAll(), ['id']);
 
 cacheSet($cacheKey, $estados);
 

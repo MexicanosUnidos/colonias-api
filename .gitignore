@@ -1,5 +1,9 @@
 config/env.php
+config/admin_php_bin.txt
 cache/responses/
 import/data/
 import/logs/
+Distritos-Secciones/
+Codigos Postales/
+Poligonos/
 .DS_Store
