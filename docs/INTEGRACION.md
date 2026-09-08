@@ -239,6 +239,31 @@ curl -H "Authorization: Bearer $KEY" "https://tu-dominio.com/distrito?seccion=1&
 
 ---
 
+### ⚠️ Cómo se relacionan (y cómo NO) colonia, sección y distrito
+
+Es un error común intentar pedir el distrito electoral a partir de una colonia, un código postal o una dirección — por ejemplo, llamando a `/distrito` con un `colonia_id` en vez de `seccion`. **Eso no existe como parámetro, y hoy no hay forma de resolverlo así.** Aquí el porqué, y qué hacer en su lugar.
+
+**Las tres piezas y de dónde sale cada una:**
+
+| Dato | Fuente oficial | Se identifica por |
+|---|---|---|
+| Colonia | SEPOMEX / INEGI | nombre + código postal + municipio |
+| Sección electoral | INE | número de sección (1-4 dígitos) + estado |
+| Distrito federal/local | INE | un número de distrito por cada sección |
+
+**El problema de fondo:** colonia y sección son catálogos de **dos autoridades distintas** (SEPOMEX/INEGI vs. INE) que **no comparten ninguna llave en común**, más allá del municipio — y el municipio no alcanza para esto, porque casi cualquier municipio se reparte entre varias secciones y varios distritos. Ejemplo real de esta misma base de datos: la alcaldía Miguel Hidalgo (CDMX) tiene decenas de secciones repartidas en más de un distrito federal. Saber solo el municipio de una colonia no te dice en cuál de esas secciones/distritos cae específicamente.
+
+Por eso `/distrito` pide `seccion`, no `colonia_id` ni una dirección: es el único dato que resuelve el distrito de forma exacta y sin ambigüedad, porque cada sección pertenece a un único distrito — sin necesitar geocodificar ni adivinar.
+
+**Qué hacer si tu sistema solo tiene la colonia/dirección del usuario, no su Sección:**
+
+1. **Recomendado — pide la Sección directamente al usuario final.** Es un número de 1-4 dígitos impreso en el frente de su credencial para votar del INE, bajo la etiqueta "Sección" o "Sección electoral". Es el único dato con el que `/distrito` da un resultado exacto hoy.
+2. **Si de plano no puedes pedírselo al usuario:** no existe todavía una ruta soportada por esta API para derivarlo automáticamente desde una colonia o coordenadas GPS. Sería técnicamente posible —el INE publica, en el mismo paquete de datos del que sale el catálogo de `/distrito` (la "Base Geográfica Digital"), los **polígonos geográficos** de cada sección, no solo la tabla plana— pero requeriría importar esa geometría y hacer un punto-en-polígono equivalente al que ya usa `/geolocate` para colonias. **Esto no está implementado.** Si tu proyecto lo necesita, pídele a quien administra ColoniasAPI que lo agregue (puede usar como referencia de cómo se hizo lo equivalente con los polígonos de colonias, en `docs/PLAN.md`, sección de importación DCAH).
+
+En resumen: **`colonia → distrito` no es posible hoy; `sección + estado → distrito` sí.** Diseña tu formulario para pedir la Sección cuando el flujo lo permita.
+
+---
+
 ### `GET /health`
 
 Estado del servicio. **No requiere API key.** Útil para monitoreo (uptime checks) — no cuenta contra tu límite de peticiones.
