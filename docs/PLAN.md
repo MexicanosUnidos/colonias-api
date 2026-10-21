@@ -589,7 +589,7 @@ La `api_key` se muestra una sola vez — el sistema guarda solo el hash.
 ### M6 — Integración con MeUnoColonia
 *Objetivo: El formulario de registro de colonos usa ColoniasAPI.*
 
-> **Nota (2026-10-20):** la integración en tiempo de ejecución de este milestone (#34–#38: autocompletar contra `/buscar`, `colonia_api_id`, GPS contra `/geolocate`) choca con la decisión del 2026-10-20: el catálogo de colonias pertenece a meuno-colonia-go-backend y colonias-api solo se cosecha, nadie la llama en tiempo de ejecución (ver MexicanosUnidos/meuno-colonia-go-backend#216). Los issues siguen abiertos con un comentario; la vía vigente es M8 — Exportación para meuno-colonia.
+> **Nota (2026-10-20):** la integración en tiempo de ejecución de este milestone (#34–#38: autocompletar contra `/buscar`, `colonia_api_id`, GPS contra `/geolocate`) choca con la decisión del 2026-10-20: el catálogo de colonias pertenece a meuno-colonia-go-backend y colonias-api solo se cosecha, nadie la llama en tiempo de ejecución (ver MexicanosUnidos/meuno-colonia-go-backend#216). Los issues siguen abiertos con un comentario; la vía vigente es M10 — Exportación para meuno-colonia.
 
 | # | Tarea | Tamaño | Entregable |
 |---|-------|--------|-----------|
@@ -657,20 +657,20 @@ La `api_key` se muestra una sola vez — el sistema guarda solo el hash.
 
 ---
 
-### M8 — Exportación para meuno-colonia
+### M10 — Exportación para meuno-colonia
 *Objetivo: meuno-colonia-go-backend cosecha el catálogo desde un archivo exportado, con códigos estables, sin llamar a la API.*
 
 > **Contexto:** decisión del 2026-10-20 (MexicanosUnidos/meuno-colonia-go-backend#216): el catálogo de colonias pertenece a meuno-colonia-go-backend, que lo cosecha de colonias-api (MexicanosUnidos/meuno-colonia-go-backend#219); ningún servicio ee la llama en tiempo de ejecución. Los ids de meuno-colonia nunca cambian y se empatan por código: estado `cve_ent`, municipio `cve_ent‖cve_mun`, colonia `cve_ent‖cve_mun-id_asenta_cpcons`.
 >
-> **Numeración:** en GitHub este es el milestone «M8 — Exportación para meuno-colonia» (issue #44, tareas M8.x). Las secciones «M8 — Importación de catálogo de Secciones Electorales (INE)» y «M9 — Endpoint de Distrito Electoral» de arriba se hicieron sin milestone en GitHub y conservan su numeración.
+> **Numeración:** en GitHub es el milestone «M10 — Exportación para meuno-colonia» (issue #44). M8 y M9 de arriba (secciones electorales INE, distrito electoral) ya existían en este plan.
 
 | # | Tarea | Tamaño | Entregable |
 |---|-------|--------|-----------|
-| M8.1 | Conservar `id_asenta_cpcons`: `import/1a_xml_a_csv.php` lo escribe en el CSV y `colonias` lo guarda, único por (municipio, `id_asenta_cpcons`), de modo que cada fila tiene el código `cve_ent‖cve_mun-id_asenta_cpcons` (#44) | 🟡 | Columna y llave única en `schema.sql`; CSV con la columna |
-| M8.2 | Importación idempotente por código: `import/1_sepomex.php` hace upsert sobre ese código; reimportar no duplica filas ni cambia ids (#44) | 🟡 | Dos corridas seguidas dejan los mismos conteos e ids |
-| M8.3 | Polígonos empatados por código cuando exista; reporte de empates ambiguos (nombres repetidos en un municipio) o sin empate (#44) | 🟡 | Reporte en `import/logs/` |
-| M8.4 | Exportación a archivo para la cosecha: estados, municipios, colonias con código, CP, tipo y centroide; polígonos con su estado de empate; secciones INE. La cosecha lo lee sin conexión (#44) | 🔴 | Comando de exportación y archivo de ejemplo documentado |
-| ✅ M8.V | Reimportar dos veces y exportar: mismos códigos, mismos conteos, sin duplicados; la cosecha de meuno-colonia lee el archivo | ✅ | Checklist completado |
+| M10.1 | Conservar `id_asenta_cpcons`: `import/1a_xml_a_csv.php` lo escribe en el CSV y `colonias` lo guarda, único por (municipio, `id_asenta_cpcons`), de modo que cada fila tiene el código `cve_ent‖cve_mun-id_asenta_cpcons` (#44) | 🟡 | Columna y llave única en `schema.sql`; CSV con la columna |
+| M10.2 | Importación idempotente por código: `import/1_sepomex.php` hace upsert sobre ese código; reimportar no duplica filas ni cambia ids (#44) | 🟡 | Dos corridas seguidas dejan los mismos conteos e ids |
+| M10.3 | Polígonos empatados por código cuando exista; reporte de empates ambiguos (nombres repetidos en un municipio) o sin empate (#44) | 🟡 | Reporte en `import/logs/` |
+| M10.4 | Exportación a archivo para la cosecha: estados, municipios, colonias con código, CP, tipo y centroide; polígonos con su estado de empate; secciones INE. La cosecha lo lee sin conexión (#44) | 🔴 | Comando de exportación y archivo de ejemplo documentado |
+| ✅ M10.V | Reimportar dos veces y exportar: mismos códigos, mismos conteos, sin duplicados; la cosecha de meuno-colonia lee el archivo | ✅ | Checklist completado |
 
 ---
 
