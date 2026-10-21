@@ -3,6 +3,8 @@
 > Este documento es para el equipo de **otro sitio** que quiere consumir ColoniasAPI (ej. MeUnoColonia, Espejo Electoral Ciudadano). No necesitas saber cómo se instaló, se pobló ni se administra el servicio — solo cómo llamarlo desde tu aplicación.
 >
 > Si buscas cómo desplegar o administrar el propio servicio, ve al [`README.md`](../README.md) del proyecto.
+>
+> **Servicios ee de MexicanosUnidos:** no llaman a esta API; consumen el catálogo solo a través de la exportación sin conexión para la cosecha (M8, ver [`PLAN.md`](PLAN.md); MexicanosUnidos/meuno-colonia-go-backend#216).
 
 ---
 
